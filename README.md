@@ -1,3 +1,16 @@
+# PiBrowse
+
+PiBrowse is an open-source project for browser profile workspaces that you can
+run locally or self-host for your team. PiBrowse builds on Fury and is licensed
+under AGPL-3.0-or-later.
+
+[PiBrowse website](https://pibrowse.dev/) ·
+[Fury upstream project](https://github.com/furyteamtop/fury-antidetect-browser)
+
+## Upstream Fury documentation
+
+The documentation below describes upstream Fury and its releases.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
   <img src="assets/logo.png" alt="Fury" width="420">

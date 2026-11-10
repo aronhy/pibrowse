@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17201d">
+  <meta name="description" content="PiBrowse is an open-source project for browser profile workspaces, with local and self-hosted editions. PiBrowse Cloud is in preparation.">
+  <link rel="canonical" href="https://pibrowse.dev/">
+  <title>PiBrowse — Browser profile workspaces</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #17201d;
+      --paper: #f8f7ef;
+      --muted: #4c5c53;
+      --line: #d2d9ce;
+      --accent: #ddf995;
+      --on-dark: #c0cbc2;
+      --width: 70rem;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: var(--paper); }
+    a { color: inherit; }
+    a:focus-visible { outline: 2px solid currentColor; outline-offset: 5px; }
+    .wrap { width: min(100% - 3rem, var(--width)); margin-inline: auto; }
+    .skip {
+      position: absolute;
+      top: .75rem;
+      left: .75rem;
+      z-index: 2;
+      padding: .65rem .9rem;
+      color: var(--ink);
+      background: var(--accent);
+      transform: translateY(-200%);
+    }
+    .skip:focus { transform: none; }
+    .top, .hero { color: var(--paper); background: var(--ink); }
+    .top .wrap {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 4.75rem;
+      gap: 1rem;
+      border-bottom: 1px solid #3b4942;
+    }
+    .brand, nav a { text-decoration: none; }
+    .brand { display: inline-flex; align-items: center; gap: .6rem; font-weight: 750; }
+    .brand svg { width: 1.5rem; height: 1.5rem; color: var(--accent); }
+    nav { display: flex; align-items: center; gap: clamp(.65rem, 3vw, 2rem); }
+    nav a { display: inline-block; padding: .65rem .1rem; color: var(--on-dark); font-size: .88rem; }
+    nav a:hover { color: var(--paper); text-decoration: underline; text-underline-offset: .25em; }
+    .hero { overflow: hidden; }
+    .hero .wrap {
+      display: grid;
+      grid-template-columns: 1.04fr 1fr;
+      align-items: center;
+      gap: clamp(1.5rem, 4vw, 4rem);
+      padding-block: clamp(3.4rem, 9vw, 7rem);
+    }
+    .eyebrow {
+      margin: 0;
+      font: 650 .76rem/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+      letter-spacing: .11em;
+      text-transform: uppercase;
+    }
+    .hero .eyebrow { color: var(--accent); }
+    h1 {
+      margin: .42rem 0 1.05rem;
+      font-size: clamp(4rem, 8vw, 7.75rem);
+      font-weight: 750;
+      line-height: .98;
+      letter-spacing: -.085em;
+    }
+    .tagline { margin: 0 0 .65rem; font-size: clamp(1.22rem, 2.8vw, 1.8rem); font-weight: 660; letter-spacing: -.035em; }
+    .intro { max-width: 31ch; margin: 0; color: var(--on-dark); font-size: 1.05rem; line-height: 1.65; }
+    .cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 1.3rem;
+      margin-top: 1.85rem;
+      padding: .85rem 1.05rem;
+      border-radius: .2rem;
+      color: var(--ink);
+      background: var(--accent);
+      font-weight: 700;
+      text-decoration: none;
+      transition: background-color .18s ease;
+    }
+    .cta:hover { background: #efffc7; }
+    .cta:focus-visible { outline-color: var(--accent); }
+    .cta span { transition: transform .18s ease; }
+    .cta:hover span { transform: translateX(.2rem); }
+    .illustration { display: block; width: 100%; height: auto; animation: arrive .65s ease-out both; }
+    @keyframes arrive { from { opacity: 0; transform: translateY(.6rem); } to { opacity: 1; transform: translateY(0); } }
+    .editions { padding-block: clamp(3.6rem, 8vw, 6.6rem); }
+    h2, h3 { letter-spacing: -.045em; line-height: 1.1; }
+    h2 { margin: .5rem 0 1.75rem; font-size: clamp(2rem, 5vw, 3.5rem); }
+    h3 { margin: .65rem 0 .55rem; font-size: 1.55rem; }
+    .editions .eyebrow { color: var(--muted); }
+    .edition-list {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border-block: 1px solid var(--line);
+    }
+    .edition { padding-block: 1.35rem 1.6rem; }
+    .edition + .edition { border-left: 1px solid var(--line); padding-inline-start: 1.35rem; }
+    .edition:not(:last-child) { padding-inline-end: 1.35rem; }
+    .edition p:last-child { max-width: 32ch; margin: 0; color: var(--muted); line-height: 1.55; }
+    .project { border-top: 1px solid var(--line); padding-block: clamp(2.5rem, 6vw, 4.3rem); }
+    .project h2 { margin-bottom: .65rem; font-size: clamp(1.65rem, 4vw, 2.45rem); }
+    .project p { max-width: 54ch; margin: 0 0 1rem; color: var(--muted); line-height: 1.6; }
+    .project-links { display: flex; gap: .4rem 1.5rem; flex-wrap: wrap; }
+    .project-links a { display: inline-block; padding: .55rem 0; font-weight: 680; text-underline-offset: .24em; }
+    .project-links a:hover { text-decoration-thickness: .16em; }
+    @media (max-width: 46rem) {
+      .hero .wrap { grid-template-columns: 1fr; }
+      .illustration { max-width: 29rem; }
+      .edition-list { grid-template-columns: 1fr; }
+      .edition + .edition { border-left: 0; border-top: 1px solid var(--line); padding-inline-start: 0; }
+      .edition:not(:last-child) { padding-inline-end: 0; }
+    }
+    @media (max-width: 23rem) { .wrap { width: calc(100% - 2rem); } }
+    @media (prefers-reduced-motion: reduce) {
+      .illustration { animation: none; }
+      .cta, .cta span { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="/">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M3 7h18M8 7v11m8-11v8a3 3 0 0 0 3 3h2" stroke="currentColor" stroke-width="2.35" stroke-linecap="round"/>
+        </svg>
+        PiBrowse
+      </a>
+      <nav aria-label="Main navigation">
+        <a href="#editions">Editions</a>
+        <a href="https://github.com/aronhy/pibrowse">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main" tabindex="-1">
+    <section class="hero" aria-labelledby="title">
+      <div class="wrap">
+        <div>
+          <p class="eyebrow">Open-source workspaces</p>
+          <h1 id="title">PiBrowse</h1>
+          <p class="tagline">A workspace for each browser profile.</p>
+          <p class="intro">Keep browsing sessions separate and return to the profile you need.</p>
+          <a class="cta" href="#editions">Explore editions <span aria-hidden="true">→</span></a>
+        </div>
+
+        <svg class="illustration" viewBox="0 0 500 360" fill="none" aria-hidden="true">
+          <defs>
+            <pattern id="workspace-grid" width="25" height="25" patternUnits="userSpaceOnUse">
+              <circle cx="1" cy="1" r="1" fill="#52665a"/>
+            </pattern>
+          </defs>
+          <rect width="500" height="360" fill="url(#workspace-grid)"/>
+          <path d="M0 18V0h18m464 0h18v18M0 342v18h18m464 0h18v-18" stroke="#6c8073"/>
+          <rect x="117" y="25" width="326" height="209" rx="9" fill="#24322a" stroke="#64796c"/>
+          <path d="M117 57h326" stroke="#64796c"/>
+          <rect x="87" y="52" width="326" height="209" rx="9" fill="#2d3e32" stroke="#7b9181"/>
+          <path d="M87 84h326" stroke="#7b9181"/>
+          <rect x="57" y="79" width="326" height="209" rx="9" fill="#ddf995" stroke="#ddf995"/>
+          <path d="M57 111h326" stroke="#43573d"/>
+          <g fill="#43573d">
+            <circle cx="76" cy="95" r="2.5"/><circle cx="86" cy="95" r="2.5"/><circle cx="96" cy="95" r="2.5"/>
+          </g>
+          <path d="M249 95h114M111 154h218M111 187h218M111 220h218M111 253h218M137 134v132m33-132v132m33-132v132m33-132v132m33-132v132m33-132v132" stroke="#79965b" opacity=".38"/>
+          <path d="M147 170h144m-108 0v64m72-64v44c0 11 9 20 20 20h16" stroke="#17201d" stroke-width="10" stroke-linecap="round"/>
+          <path d="M57 321h86m154 0h146" stroke="#6c8073"/>
+          <text x="158" y="326" fill="#c0cbc2" font-family="monospace" font-size="12" letter-spacing="2">BROWSER PROFILES</text>
+        </svg>
+      </div>
+    </section>
+
+    <section class="wrap editions" id="editions" aria-labelledby="editions-title">
+      <p class="eyebrow">Editions</p>
+      <h2 id="editions-title">Choose where your workspaces live.</h2>
+      <div class="edition-list">
+        <article class="edition">
+          <p class="eyebrow">Open source</p>
+          <h3>Local</h3>
+          <p>Manage separate browser profiles on your own computer.</p>
+        </article>
+        <article class="edition">
+          <p class="eyebrow">Open source</p>
+          <h3>Self-hosted</h3>
+          <p>Run a team server on your own infrastructure and manage shared profiles.</p>
+        </article>
+        <article class="edition">
+          <p class="eyebrow">In preparation</p>
+          <h3>PiBrowse Cloud</h3>
+          <p>A hosted edition for teams that want someone else to run the server.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="project" id="project" aria-labelledby="project-title">
+    <div class="wrap">
+      <h2 id="project-title">Open-source roots</h2>
+      <p>PiBrowse builds on Fury, created by Bogdan Shapovalov and the Fury contributors. The upstream project is licensed under AGPL-3.0-or-later.</p>
+      <div class="project-links">
+        <a href="https://github.com/aronhy/pibrowse">PiBrowse source on GitHub</a>
+        <a href="https://github.com/furyteamtop/fury-antidetect-browser">Fury upstream source</a>
+        <a href="https://www.gnu.org/licenses/agpl-3.0.html">Read the AGPL license</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "pibrowse-site",
+  "compatibility_date": "2026-11-10",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "pibrowse.dev",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "./pibrowse"
+  }
+}
