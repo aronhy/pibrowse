@@ -1,13 +1,39 @@
 # PiBrowse
 
-PiBrowse is an open-source project for browser profile workspaces that you can
-run locally or self-host for your team. PiBrowse builds on Fury and is licensed
-under AGPL-3.0-or-later.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/pibrowse-logo-dark.png">
+  <img src="assets/pibrowse-logo.png" alt="PiBrowse" width="420">
+</picture>
 
-[PiBrowse website](https://pibrowse.dev/) ·
-[Fury upstream project](https://github.com/furyteamtop/fury-antidetect-browser)
+PiBrowse is an open-source fingerprint browser for keeping browser profiles
+separate. Run it locally or self-host it for your team.
 
-## Upstream Fury documentation
+[Website](https://pibrowse.dev/) · [Aron on X](https://x.com/aronhouyu) ·
+[Report a bug or request a feature](https://github.com/aronhy/pibrowse/issues)
+
+## Why I started PiBrowse
+
+I got tired of how many fingerprint browsers require a subscription. Then I
+found Fury. Its open source gave me a starting point I could build on, and
+that's how PiBrowse began.
+
+**The open-source edition will always be free to download, use locally, and
+self-host.** PiBrowse Cloud is a separate, optional paid hosting service for
+teams and is still in development.
+
+— Aron
+
+## Getting started
+
+- [Installation and build notes](docs/15-install.md)
+- [Team self-hosting guide](docs/13-self-hosting.md)
+
+These guides come from [Fury](https://github.com/furyteamtop/fury-antidetect-browser).
+Thanks to Bogdan Shapovalov and the Fury contributors. PiBrowse is licensed
+under [AGPL-3.0-or-later](LICENSE).
+
+<details>
+<summary>Upstream Fury documentation</summary>
 
 The documentation below describes upstream Fury and its releases.
 
@@ -421,3 +447,5 @@ Bogdan Shapovalov — [@shapovalovbogdan](https://t.me/shapovalovbogdan) on Tele
 
 Questions about the measurements, a site that caught a profile, or a persona
 from your own machine are all welcome there or in the issue tracker.
+
+</details>
