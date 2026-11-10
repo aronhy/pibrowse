@@ -540,6 +540,15 @@ export interface Me {
   server_version?: string;
 }
 
+export interface BillingStatus {
+  enabled: boolean;
+  active: boolean;
+  can_manage: boolean;
+  has_customer: boolean;
+  status: string;
+  paid_through: string | null;
+}
+
 /** What the shell knows before anyone signs in. */
 export interface Shell {
   server_url: string | null;
@@ -654,6 +663,9 @@ export class ApiError extends Error {
 
 /** Turns a status and the server's JSON body into something worth reading. */
 function describe(status: number, body: any): string {
+  if (status === 402 && body?.error === "subscription_required") {
+    return "This action requires an active team subscription.";
+  }
   if (body?.error === "denied") {
     return `Not permitted: this action needs "${body.missing_permission}".`;
   }
@@ -859,6 +871,27 @@ export const api = {
   },
   loginTotp: (email: string, password: string, challenge: string, code: string): Promise<LoginOutcome> =>
     cmd<LoginOutcome>("login_totp", { email, password, challenge, code }),
+
+  billingStatus: (): Promise<BillingStatus> =>
+    isDesktop ? cmd<BillingStatus>("billing_status") : http<BillingStatus>("/v1/billing/status"),
+
+  async openBilling(kind: "checkout" | "portal"): Promise<void> {
+    const { url } = isDesktop
+      ? await cmd<{ url: string }>(kind === "checkout" ? "billing_checkout" : "billing_portal")
+      : await http<{ url: string }>(`/v1/billing/${kind}`, { method: "POST" });
+    const host = kind === "checkout" ? "checkout.stripe.com" : "billing.stripe.com";
+    let parsed: URL | null = null;
+    try {
+      parsed = new URL(url);
+    } catch {
+      // Treat malformed and unexpected URLs the same, without displaying them.
+    }
+    if (parsed?.protocol !== "https:" || parsed.host !== host || parsed.username || parsed.password) {
+      throw new ApiError(0, "The server did not return a valid Stripe link.", null, "billing_invalid_link");
+    }
+    if (isDesktop) await cmd<void>("open_url", { url: parsed.href });
+    else window.location.assign(parsed.href);
+  },
 
   // ---- team security -----------------------------------------------------
 

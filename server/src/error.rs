@@ -24,6 +24,9 @@ pub enum ApiError {
     #[error("authentication required")]
     Unauthenticated,
 
+    #[error("an active hosted subscription is required")]
+    SubscriptionRequired,
+
     /// The caller can see the resource but lacks this specific permission.
     #[error("missing permission")]
     Denied(Perm),
@@ -64,6 +67,10 @@ impl IntoResponse for ApiError {
             ApiError::Unauthenticated => (
                 StatusCode::UNAUTHORIZED,
                 json!({ "error": "unauthenticated" }),
+            ),
+            ApiError::SubscriptionRequired => (
+                StatusCode::PAYMENT_REQUIRED,
+                json!({ "error": "subscription_required" }),
             ),
             ApiError::Denied(perm) => (
                 StatusCode::FORBIDDEN,

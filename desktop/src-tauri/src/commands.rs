@@ -1140,6 +1140,42 @@ pub async fn me(state: State<'_, AppState>) -> R<Me> {
         .await
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct BillingStatus {
+    enabled: bool,
+    active: bool,
+    can_manage: bool,
+    has_customer: bool,
+    status: String,
+    paid_through: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct BillingLink {
+    url: String,
+}
+
+#[tauri::command]
+pub async fn billing_status(state: State<'_, AppState>) -> R<BillingStatus> {
+    state
+        .call(reqwest::Method::GET, "/v1/billing/status", Body::None, true)
+        .await
+}
+
+#[tauri::command]
+pub async fn billing_checkout(state: State<'_, AppState>) -> R<BillingLink> {
+    state
+        .call(reqwest::Method::POST, "/v1/billing/checkout", Body::None, true)
+        .await
+}
+
+#[tauri::command]
+pub async fn billing_portal(state: State<'_, AppState>) -> R<BillingLink> {
+    state
+        .call(reqwest::Method::POST, "/v1/billing/portal", Body::None, true)
+        .await
+}
+
 // ---------------------------------------------------------------------------
 // projects, profiles, locks
 // ---------------------------------------------------------------------------

@@ -3894,6 +3894,59 @@ export function format(template: string, vars?: Record<string, string | number>)
   );
 }
 
+const englishBilling = {
+  title: "Team billing",
+  active: "Monthly subscription is active.",
+  pending: "Payment is pending.",
+  inactive: "No active subscription.",
+  paidThrough: "Paid through {date}.",
+  checkout: "Subscribe monthly",
+  portal: "Manage billing",
+  refresh: "Refresh status",
+  refreshing: "Refreshing…",
+  afterCheckout: "After paying in your browser, return here and refresh the status.",
+  askOwner: "Ask the team owner to manage the subscription.",
+  required: "This action requires an active team subscription. The team owner can manage billing in Settings → Team server.",
+  invalidLink: "The server did not return a valid Stripe link.",
+};
+
+const translatedBilling: Partial<Record<Resolved, typeof englishBilling>> = {
+  zh: {
+    title: "团队订阅",
+    active: "月付订阅生效中。",
+    pending: "等待付款确认。",
+    inactive: "当前没有有效订阅。",
+    paidThrough: "已付费至 {date}。",
+    checkout: "开通月付订阅",
+    portal: "管理账单",
+    refresh: "刷新订阅状态",
+    refreshing: "正在刷新…",
+    afterCheckout: "在浏览器完成付款后，回到这里刷新订阅状态。",
+    askOwner: "请联系团队所有者管理订阅。",
+    required: "此操作需要有效的团队订阅。团队所有者可在「设置 → 团队服务器」管理账单。",
+    invalidLink: "服务器未返回有效的 Stripe 链接。",
+  },
+  ru: {
+    title: "Оплата команды",
+    active: "Месячная подписка активна.",
+    pending: "Ожидается подтверждение оплаты.",
+    inactive: "Нет активной подписки.",
+    paidThrough: "Оплачено до {date}.",
+    checkout: "Оформить подписку на месяц",
+    portal: "Управлять оплатой",
+    refresh: "Обновить статус",
+    refreshing: "Обновление…",
+    afterCheckout: "Оплатите подписку в браузере, вернитесь сюда и обновите статус.",
+    askOwner: "Попросите владельца команды управлять подпиской.",
+    required: "Для этого действия нужна активная подписка команды. Владелец может управлять оплатой в разделе «Настройки → Командный сервер».",
+    invalidLink: "Сервер не вернул действительную ссылку Stripe.",
+  },
+};
+
+export function billingStrings(language: Resolved) {
+  return translatedBilling[language] ?? englishBilling;
+}
+
 // Every mounted component listens, because the choice is made in one place —
 // the settings dialog — and has to reach the sidebar, the table and the two
 // other dialogs at once. Component-local state would leave half the window in
@@ -3943,10 +3996,12 @@ export function useI18n(): {
     t,
     say: (e) => {
       const code = (e as { code?: unknown } | null)?.code;
+      if (code === "billing_invalid_link") return billingStrings(resolved).invalidLink;
       if (typeof code === "string" && code in dict) return t(code as Key);
       // A missing right is named by its key; the operator knows it by the
       // words on the checkbox their admin ticks.
       const body = (e as { body?: { error?: unknown; missing_permission?: unknown } } | null)?.body;
+      if (body?.error === "subscription_required") return billingStrings(resolved).required;
       if (body?.error === "denied" && typeof body.missing_permission === "string") {
         const label = `perm.${body.missing_permission}`;
         if (label in dict) return t("err.denied", { perm: t(label as Key) });

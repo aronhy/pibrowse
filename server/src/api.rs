@@ -2432,6 +2432,7 @@ async fn create_profile(
     let caller = db.caller;
 
     rbac_guard::require(db.as_mut(), caller.user_id, project_id, Perm::CreateProfile).await?;
+    crate::billing::require_active(state.billing.is_some(), db.as_mut(), caller.org_id).await?;
     ensure_room_for_a_profile(&mut db, &state.limits).await?;
 
     if req.name.trim().is_empty() {
@@ -2628,6 +2629,7 @@ async fn clone_profile(
     // Creating, not editing: the permission that matters is the one for adding
     // a profile to the project the copies land in.
     rbac_guard::require(db.as_mut(), caller.user_id, source.project_id, Perm::CreateProfile).await?;
+    crate::billing::require_active(state.billing.is_some(), db.as_mut(), caller.org_id).await?;
 
     let pattern = match req.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) {
         Some(n) if n.contains("{n}") => n.to_string(),
@@ -3188,6 +3190,7 @@ async fn list_trash(
 }
 
 async fn restore_profile(
+    State(state): State<Arc<AppState>>,
     mut db: auth::Db,
     Path(profile_id): Path<Uuid>,
 ) -> ApiResult<Json<serde_json::Value>> {
@@ -3203,6 +3206,7 @@ async fn restore_profile(
         .await?;
     let (project_id,) = project.ok_or(ApiError::NotFound)?;
     rbac_guard::require(db.as_mut(), caller.user_id, project_id, Perm::DeleteProfile).await?;
+    crate::billing::require_active(state.billing.is_some(), db.as_mut(), caller.org_id).await?;
 
     // Into a project that still exists, or nowhere useful. A profile restored
     // into a deleted project is invisible again, which is the state the trash
@@ -3335,6 +3339,7 @@ pub struct InviteRequest {
 /// because asking an operator to ssh into a box to add a colleague is asking
 /// them not to.
 async fn create_invitation(
+    State(state): State<Arc<AppState>>,
     mut db: auth::Db,
     Json(req): Json<InviteRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
@@ -3359,6 +3364,7 @@ async fn create_invitation(
     if matches!(caller.role, OrgRole::Admin) && matches!(role, OrgRole::Admin) {
         return Err(ApiError::Denied(Perm::ManageAccess));
     }
+    crate::billing::require_active(state.billing.is_some(), db.as_mut(), caller.org_id).await?;
 
     let email = req.email.trim();
     if !email.contains('@') || email.len() < 3 {
@@ -4144,6 +4150,7 @@ pub struct LockRequest {
 }
 
 async fn acquire_lock(
+    State(state): State<Arc<AppState>>,
     mut db: auth::Db,
     Path(profile_id): Path<Uuid>,
     Json(req): Json<LockRequest>,
@@ -4161,6 +4168,17 @@ async fn acquire_lock(
     }
     if req.force && !perms.has(Perm::ManageAccess) {
         return Err(ApiError::Denied(Perm::ManageAccess));
+    }
+
+    // A guest launching a shared profile consumes the owner's hosted service.
+    // Check billing only after RBAC has established that the caller may launch it.
+    if state.billing.is_some() {
+        let org_id: Uuid = sqlx::query_scalar("SELECT org_id FROM profiles WHERE id = $1 AND deleted_at IS NULL")
+            .bind(profile_id)
+            .fetch_optional(db.as_mut())
+            .await?
+            .ok_or(ApiError::NotFound)?;
+        crate::billing::require_active(true, db.as_mut(), org_id).await?;
     }
 
     // Assembled before the lock is taken. A lock held on a profile that turns

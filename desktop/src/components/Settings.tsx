@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { api, type DomainList, type KeptPersona, type Shell } from "../api";
 import { SecondFactor } from "./SecondFactor";
+import { TeamBilling } from "./TeamBilling";
 import { languageNames, languages, useI18n, type Language } from "../i18n";
 import { type Theme, themes, useTheme } from "../theme";
 import { Select } from "./Select";
@@ -126,6 +127,9 @@ export function Settings({
             </>
           )}
 
+          {tab === "team" && shell.mode === "team" && shell.signed_in && (
+            <TeamBilling key={shell.server_url} />
+          )}
           {tab === "team" && (
             <div className="settingsGroup">
               <h2>{t("set.teamServer")}</h2>

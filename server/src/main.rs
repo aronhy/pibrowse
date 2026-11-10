@@ -11,6 +11,7 @@
 mod shares;
 mod api;
 mod auth;
+mod billing;
 mod enroll;
 mod error;
 mod mail;
@@ -30,6 +31,7 @@ use sqlx::PgPool;
 #[derive(Clone)]
 pub struct AppState {
     pub db: PgPool,
+    pub billing: Option<billing::Billing>,
     /// Whether a stranger may make themselves an account.
     ///
     /// Off unless `FURY_OPEN_SIGNUP=1`. A self-hosted server is somebody's own
@@ -145,7 +147,18 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!(swept, "removed uploads abandoned before this start");
     }
 
+    let billing = billing::Billing::from_env()?;
     let db = connect().await?;
+    if billing.is_some() {
+        let bypasses_rls: bool = sqlx::query_scalar(
+            "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user",
+        )
+        .fetch_one(&db)
+        .await?;
+        if bypasses_rls {
+            anyhow::bail!("hosted billing requires a PostgreSQL role without SUPERUSER or BYPASSRLS");
+        }
+    }
     sqlx::migrate!("./migrations").run(&db).await?;
 
     // Anything but "1"/"true" is off, including a typo. A setting that opens
@@ -179,10 +192,11 @@ async fn main() -> anyhow::Result<()> {
         },
         None => tracing::info!("mail: off (no FURY_SMTP_URL), invited addresses are not confirmed"),
     }
-    let state = Arc::new(AppState { db, open_signup, limits, mailer });
+    let state = Arc::new(AppState { db, billing, open_signup, limits, mailer });
     let app = Router::new()
         .route("/healthz", get(healthz))
         .merge(api::routes())
+        .merge(billing::routes())
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
 

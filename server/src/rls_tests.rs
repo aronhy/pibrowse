@@ -33,6 +33,9 @@ use sqlx::{Connection, Executor, PgConnection};
 /// tests take under a second.
 static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+#[path = "billing_flow_tests.rs"]
+mod billing_flow_tests;
+
 const ORG_A: &str = "11111111-1111-1111-1111-111111111111";
 const ORG_B: &str = "22222222-2222-2222-2222-222222222222";
 const USER_A: &str = "aaaaaaaa-0000-0000-0000-000000000001";
