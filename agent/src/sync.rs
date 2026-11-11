@@ -35,7 +35,7 @@ const TRANSFER_HINT: &str = "moving this profile's data to or from the team serv
     limits large transfers -- a proxy such as Cloudflare's (set the record to DNS only), \
     an antivirus, or a very slow link. See docs/14-team-server.md";
 
-/// A refusal that came from Cloudflare rather than from the Fury server says so.
+/// A refusal that came from Cloudflare rather than from the PiBrowse server says so.
 fn refused_by(res: &reqwest::Response) -> &'static str {
     let cf = res
         .headers()
@@ -43,7 +43,7 @@ fn refused_by(res: &reqwest::Response) -> &'static str {
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.eq_ignore_ascii_case("cloudflare"));
     if cf {
-        " -- answered by Cloudflare's proxy, not by the Fury server; set the record to DNS only (docs/14)"
+        " -- answered by Cloudflare's proxy, not by the PiBrowse server; set the record to DNS only (docs/14)"
     } else {
         ""
     }

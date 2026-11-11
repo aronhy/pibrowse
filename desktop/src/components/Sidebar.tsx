@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
+import { brandIcon, brandName } from "../brand";
 import { useI18n } from "../i18n";
 import { useState } from "react";
 import type { Me, Project, Shell } from "../api";
@@ -46,7 +47,7 @@ export function Sidebar({
   const [menu, setMenu] = useState<string | null>(null);
   return (
     <aside className="sidebar">
-      <div className="brand">PiBrowse</div>
+      <div className="brand"><img src={brandIcon} alt="" width="28" height="28" />{brandName}</div>
 
       <button className="primary newProfile" onClick={onNewProfile}>
         {t("bar.newProfile")}

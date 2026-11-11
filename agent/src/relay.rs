@@ -1262,7 +1262,7 @@ fn start_page(exit: &str, probe: Option<&str>) -> String {
         .map(|href| format!(r#"<p class="sub" style="margin-top:8px"><a href="{}" style="color:#e0552f">Full probe — every vector, every context →</a></p>"#, escape_html(href)))
         .unwrap_or_default();
     format!(
-        r##"<!doctype html><meta charset="utf-8"><title>Fury</title>
+        r##"<!doctype html><meta charset="utf-8"><title>PiBrowse</title>
 <style>
  :root{{color-scheme:dark}}
  body{{margin:0;background:#0e1013;color:#e8eaed;
@@ -1283,7 +1283,7 @@ fn start_page(exit: &str, probe: Option<&str>) -> String {
  .bad{{background:rgba(224,160,48,.1);color:#e0a030}}
 </style>
 <main>
- <h1>Fury</h1>
+ <h1>PiBrowse</h1>
  <p class="sub">What this profile reports right now, measured in this page. Nothing here left your machine.</p>
  <dl id="facts"></dl>
  <div id="verdict" class="v"></div>

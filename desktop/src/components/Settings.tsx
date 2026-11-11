@@ -9,11 +9,11 @@ import { languageNames, languages, useI18n, type Language } from "../i18n";
 import { type Theme, themes, useTheme } from "../theme";
 import { Select } from "./Select";
 import { DEFAULT_SERVER } from "../defaults";
-import { Icon, type IconName } from "./Icon";
+import { brandName } from "../brand";
 import { PartnerCard } from "./Partner";
 import { proxyPartnerLabels } from "../proxyPartnerI18n";
 
-const TABS = ["general", "team", "data", "about", "products", "partners"] as const;
+const TABS = ["general", "team", "data", "about", "partners"] as const;
 type Tab = (typeof TABS)[number];
 
 /** Everything that is a preference rather than a property of a profile.
@@ -28,7 +28,7 @@ type Tab = (typeof TABS)[number];
  *  fit. */
 /** The issue form that turns a saved capture into a pull request
  *  (.github/workflows/persona-issue.yml). Drop the file in; a robot does the rest. */
-const PERSONA_FORM = "https://github.com/furyteamtop/fury-antidetect-browser/issues/new?template=persona.yml";
+const PERSONA_FORM = "https://github.com/aronhy/pibrowse/issues/new?template=persona.yml";
 
 export function Settings({
   shell,
@@ -293,7 +293,6 @@ export function Settings({
           )}
 
           {tab === "about" && <About shell={shell} />}
-          {tab === "products" && <Products />}
           {tab === "partners" && (
             <div className="settingsGroup">
               <h2>{partnerText.title}</h2>
@@ -405,7 +404,7 @@ function About({ shell }: { shell: Shell }) {
   return (
     <>
       <div className="settingsGroup">
-        <h2>Fury</h2>
+        <h2>{brandName}</h2>
         <p>{t("about.what")}</p>
         <dl className="kv">
           <dt>{t("about.version")}</dt>
@@ -901,71 +900,4 @@ function windowsRelease(v: string): string {
   if (major >= 1 && major <= 10) return "10";
   if (major >= 13) return "11";
   return v;
-}
-
-/** The developer's other products, the same list FuryMail's About shows.
- *
- *  Fury is free, and the people who use it are the audience for the rest:
- *  agencies running accounts, SEO people. Asked for on 14.10.2026 so that
- *  somebody using the antidetect sees what else there is. Plain links, opened
- *  in the system browser; nothing here is fetched or reported. */
-const DEVELOPER_TELEGRAM = "https://t.me/mrbogdan";
-
-const PRODUCTS: { name: string; detail: "prod.crm" | "prod.seoPlugin" | "prod.seoExtension" | "prod.mail"; icon: IconName; url: string | null }[] = [
-  { name: "FuryCRM", detail: "prod.crm", icon: "people", url: "https://furycrm.ru" },
-  { name: "SEO Fury", detail: "prod.seoPlugin", icon: "puzzle", url: "https://seo-fury.com" },
-  {
-    name: "SEO Fury — SEO Auditor",
-    detail: "prod.seoExtension",
-    icon: "globe",
-    url: "https://chromewebstore.google.com/detail/seo-fury-%E2%80%94-seo-auditor/omkoncaffmikgcdndbnnokjggdmkfkce",
-  },
-  // The Mac App Store page without a storefront or a language in it, so it
-  // opens in the reader's own store and language.
-  { name: "FuryMail", detail: "prod.mail", icon: "mail", url: "https://apps.apple.com/app/furymail/id6814842270?mt=12" },
-];
-
-function Products() {
-  const { t } = useI18n();
-  const open = (url: string) => void api.openUrl(url);
-  return (
-    <>
-      <div className="settingsGroup">
-        <div className="devCard">
-          <div className="devAvatar" aria-hidden="true">БШ</div>
-          <div className="devWho">
-            <div className="devName">Bogdan Shapovalov</div>
-            <div className="muted small">{t("prod.role")}</div>
-          </div>
-          <button className="primary" onClick={() => open(DEVELOPER_TELEGRAM)}>
-            <Icon name="send" /> {t("prod.telegram")}
-          </button>
-        </div>
-      </div>
-      <div className="settingsGroup">
-        <h2>{t("set.tab.products")}</h2>
-        <p>{t("prod.intro")}</p>
-        <div className="productList">
-          {PRODUCTS.map((p) => (
-            <div key={p.name} className="productRow">
-              <span className="productIcon">
-                <Icon name={p.icon} size={18} />
-              </span>
-              <div className="productText">
-                <div className="productName">{p.name}</div>
-                <div className="muted small">{t(p.detail)}</div>
-              </div>
-              {p.url ? (
-                <button className="ghost" onClick={() => open(p.url!)}>
-                  {t("prod.open")} <Icon name="external" size={13} />
-                </button>
-              ) : (
-                <span className="muted small">{t("prod.soon")}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    </>
-  );
 }

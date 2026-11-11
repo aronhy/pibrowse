@@ -3,18 +3,18 @@
 # Copyright 2026 Bogdan Shapovalov and the Fury authors
 """The branding, which has to be visible to the operator and invisible to a site.
 
-0900 renames the product: the bundle is Fury.app, the helpers are Fury Helper,
-the About page says Fury. That is the half everyone thinks of.
+0900 renames the product: the bundle is PiBrowse.app, the helpers are PiBrowse Helper,
+the About page says PiBrowse. That is the half everyone thinks of.
 
 The half that matters is the other one — none of it may reach a page. A profile
-whose `navigator.userAgent` says Fury, or whose Sec-CH-UA brand list carries it,
+whose `navigator.userAgent` says PiBrowse, or whose Sec-CH-UA brand list carries it,
 has told every site it visits which browser it is, and there are perhaps a few
 hundred of them in the world. The rename must stop at the process boundary.
 
 So this checks both directions:
 
   * the built bundle really is renamed, on disk and in Info.plist, and the
-    helpers with it — a mixed set (Fury.app spawning Chromium Helper) is a
+    helpers with it — a mixed set (PiBrowse.app spawning Chromium Helper) is a
     packaging bug an operator would meet at first launch.
   * `navigator.userAgent`, `navigator.appName`, `appCodeName`, `vendor`,
     `userAgentData.brands` and `chrome.runtime` carry NO trace of it, in the
@@ -30,6 +30,7 @@ import plistlib
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bundle_branding import discover_theme, inspect_bundle  # noqa: E402
 from harness import Claims, launch  # noqa: E402
 
 CORE = sys.argv[1]
@@ -64,11 +65,10 @@ def main():
 
     # The bundle on disk.
     app = os.path.abspath(os.path.join(os.path.dirname(CORE), "..", ".."))
-    outdir = os.path.dirname(app)
     print(f"  bundle: {app}")
 
-    claims.check(os.path.basename(app) == "Fury.app",
-                 f"the bundle is Fury.app (got {os.path.basename(app)!r})")
+    claims.check(os.path.basename(app) == "PiBrowse.app",
+                 f"the bundle is PiBrowse.app (got {os.path.basename(app)!r})")
 
     plist_path = os.path.join(app, "Contents", "Info.plist")
     with open(plist_path, "rb") as f:
@@ -76,29 +76,40 @@ def main():
     print(f"  Info.plist: name={plist.get('CFBundleName')!r} "
           f"exe={plist.get('CFBundleExecutable')!r} "
           f"id={plist.get('CFBundleIdentifier')!r}")
-    claims.check(plist.get("CFBundleName") == "Fury"
-                 and plist.get("CFBundleExecutable") == "Fury",
-                 f"and Info.plist agrees, so the Dock and About box do too "
+    claims.check(plist.get("CFBundleName") == "PiBrowse"
+                 and plist.get("CFBundleDisplayName") == "PiBrowse"
+                 and plist.get("CFBundleExecutable") == "PiBrowse",
+                 f"and the main bundle's display/executable metadata agrees "
                  f"({plist.get('CFBundleName')!r}, "
                  f"{plist.get('CFBundleExecutable')!r})")
-    claims.check("chromium" not in plist.get("CFBundleIdentifier", "").lower(),
-                 f"the bundle identifier was renamed too — a Fury.app with "
-                 f"org.chromium.Chromium inside shares macOS state with a real "
-                 f"Chromium install (got {plist.get('CFBundleIdentifier')!r})")
+    claims.check(plist.get("CFBundleIdentifier") == "dev.fury.core",
+                 f"the compatible core bundle identity is retained "
+                 f"(got {plist.get('CFBundleIdentifier')!r})")
 
     # The helpers the app runs are the ones inside its framework. A build
     # directory also has loose copies beside the bundle; a signed bundle
     # (signed/stable/) has only the ones inside, which this used to miss.
     inside = glob.glob(os.path.join(app, "Contents", "Frameworks", "*.framework",
                                     "Versions", "Current", "Helpers"))
-    where = [outdir] + inside
+    # Old loose build outputs may coexist for compatibility. Only the helpers
+    # actually shipped INSIDE this new bundle determine its acceptance.
+    where = inside
     helpers = sorted({n for d in where for n in os.listdir(d)
                       if n.endswith("Helper.app") or "Helper (" in n})
     print(f"  helpers: {helpers}")
-    claims.check(helpers and all(h.startswith("Fury Helper") for h in helpers),
-                 f"every helper is renamed with it — Fury.app spawning "
+    claims.check(helpers and all(h.startswith("PiBrowse Helper") for h in helpers),
+                 f"every helper is renamed with it — PiBrowse.app spawning "
                  f"'Chromium Helper' is what an operator meets at first launch "
                  f"({helpers})")
+
+    theme = discover_theme(app)
+    claims.check(theme is not None, "approved build theme is available for packaged-icon comparison")
+    if theme is not None:
+        problems = inspect_bundle(app, theme)
+        for problem in problems:
+            print(f"  bundle branding: {problem}")
+        claims.check(not problems,
+                     "PiBrowse helpers/localized labels and the approved Chromium numbered Dock base match")
 
     # And none of it reaches a page.
     with launch(CORE, None) as s:
@@ -108,9 +119,9 @@ def main():
 
         for context in ("main", "worker"):
             blob = json.dumps(got[context]).lower()
-            claims.check("fury" not in blob,
+            claims.check("fury" not in blob and "pibrowse" not in blob,
                          f"nothing a page reads in the {context} context "
-                         f"contains the product name — a UA saying Fury names "
+                         f"contains the product name — a UA saying PiBrowse names "
                          f"one of a few hundred browsers in the world")
 
         claims.check(got["main"]["appName"] == "Netscape"
@@ -130,9 +141,9 @@ def main():
         version = s.js("navigator.userAgent.match(/Chrome\\/([\\d.]+)/)[1]")
         print(f"  reported Chrome version: {version}")
         claims.control(
-            os.path.basename(app) == "Fury.app"
+            os.path.basename(app) == "PiBrowse.app"
             and "Chrome/" in got["main"]["ua"]
-            and "Fury" not in got["main"]["ua"],
+            and "PiBrowse" not in got["main"]["ua"],
             f"the binary IS renamed on disk and still says Chrome/{version} to "
             f"a page — the two halves are in opposite directions, and both are "
             f"required",

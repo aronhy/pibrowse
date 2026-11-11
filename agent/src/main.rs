@@ -133,7 +133,7 @@ async fn main() -> anyhow::Result<()> {
                      This is what the desktop app talks to.\n  \
                    fury-agent mcp\n      \
                      MCP server on stdin/stdout for Claude Desktop, Cursor, Claude Code.\n      \
-                     Fury's AI assistants settings connect it with one button.\n  \
+                     PiBrowse's AI assistants settings connect it with one button.\n  \
                    fury-agent relay <upstream-url> [--port N]\n      \
                      Start a profile relay. Upstream may be:\n        \
                        http://user:pass@host:port\n        \
@@ -514,9 +514,11 @@ pub fn core_outdated(exe: &std::path::Path) -> Option<String> {
 /// profile (0122), hidden fonts refused before the platform cache (0051) and a
 /// phone's orientation events at a phone's rate (0135). CHROME_MAJOR already
 /// sends every older core to the download, so this only keeps the number honest.
-#[cfg(windows)]
-pub const CORE_BUILD: &str = "0.5.0";
-#[cfg(not(windows))]
+// The macOS PiBrowse rebuild adds the approved product resources and numbered
+// Chromium Dock icons. Other platforms retain their previously built core.
+#[cfg(target_os = "macos")]
+pub const CORE_BUILD: &str = "0.5.5";
+#[cfg(not(target_os = "macos"))]
 pub const CORE_BUILD: &str = "0.5.0";
 
 /// `0.2.10` as (0, 2, 10); None for anything else.
@@ -573,8 +575,8 @@ pub fn core_stale(exe: &std::path::Path) -> Option<Option<String>> {
 /// file settles it without a 150 MB download. Update these with CORE_BUILD.
 #[cfg(target_os = "macos")]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
-    "../Frameworks/Fury Framework.framework/Versions/Current/Fury Framework",
-    "1fba01ebe646fe09dce5a9c4ab52dc268829c2667738ef02fd078d4c3a547804",
+    "../Frameworks/PiBrowse Framework.framework/Versions/Current/PiBrowse Framework",
+    "174b7b3bf4b804ead3cb8bf9822716f9dc91862ae37ba262538988028957aa17",
 ));
 #[cfg(windows)]
 const CORE_BUILD_ENGINE: Option<(&str, &str)> = Some((
@@ -616,7 +618,7 @@ fn engine_matches(path: &std::path::Path, want: &str) -> bool {
 fn core_version_problem(exe: &std::path::Path) -> Option<String> {
     let have = core_outdated(exe)?;
     Some(format!(
-        "The installed browser is Chrome {have}, and this version of Fury needs Chrome \
+        "The installed browser is Chrome {have}, and this version of PiBrowse needs Chrome \
          {CHROME_MAJOR}. Download the new one; it replaces the old."
     ))
 }
@@ -722,7 +724,7 @@ pub fn core_lookup_problem() -> Option<String> {
 fn how_to_unset(current: &str) -> String {
     // Whatever the source, the agent has to be restarted for the change to
     // reach it, and that is the part everybody gets wrong.
-    const THEN_RESTART: &str = "Then quit Fury and stop the agent — \
+    const THEN_RESTART: &str = "Then quit PiBrowse and stop the agent — \
                                 `pkill -f fury-agent` — because it is a separate \
                                 process that an application restart does not touch";
 
@@ -789,6 +791,7 @@ fn core_leaves() -> &'static [&'static str] {
     #[cfg(target_os = "macos")]
     {
         &[
+            "PiBrowse.app/Contents/MacOS/PiBrowse",
             "Fury.app/Contents/MacOS/Fury",
             "Chromium.app/Contents/MacOS/Chromium",
         ]
@@ -810,6 +813,8 @@ fn core_leaves() -> &'static [&'static str] {
         // FURY_CORE and for anything installed before the archive gained its
         // top-level directory.
         &[
+            "PiBrowse/chrome.exe",
+            "PiBrowse/pibrowse.exe",
             "Fury/chrome.exe",
             "Fury/fury.exe",
             "fury.exe",
@@ -818,7 +823,7 @@ fn core_leaves() -> &'static [&'static str] {
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        &["fury-core", "chrome"]
+        &["pibrowse-core", "fury-core", "chrome"]
     }
 }
 

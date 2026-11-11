@@ -52,7 +52,9 @@ jobs:
       - name: verify each patch on the running browser
         run: |
           set -euo pipefail
-          CORE="core/src/out/macos-arm64.noindex/Fury.app/Contents/MacOS/Fury"
+          CORE="core/src/out/macos-arm64.noindex/PiBrowse.app/Contents/MacOS/PiBrowse"
+          test -x "$CORE" || CORE="core/src/out/macos-arm64-lowmem.noindex/PiBrowse.app/Contents/MacOS/PiBrowse"
+          test -x "$CORE" || CORE="core/src/out/macos-arm64.noindex/Fury.app/Contents/MacOS/Fury"
           test -x "$CORE" || CORE="core/src/out/macos-arm64-lowmem.noindex/Fury.app/Contents/MacOS/Fury"
           # run-all.py rather than a shell loop: `set -e` stops at the first
           # failure, and when an uprev breaks four patches, one failure and

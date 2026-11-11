@@ -39,7 +39,7 @@ pub fn migrate_legacy_dir() {
     match std::fs::rename(&old, &new) {
         Ok(()) => tracing::info!(
             from = %old.display(), to = %new.display(),
-            "moved the installed core into a package so search shows one Fury"
+            "moved the installed core into a package so search shows one PiBrowse"
         ),
         // Not fatal. The next install-core writes the new location anyway, and
         // failing to start over a directory name would be a poor trade.
@@ -78,7 +78,7 @@ pub fn install(src: &Path) -> Result<PathBuf> {
             format!(
                 "clearing {}. On Windows this usually means a browser from an \
                  earlier install is still running and holding its own files -- \
-                 close every Fury window and try again",
+                 close every PiBrowse window and try again",
                 staging.display()
             )
         })?;
@@ -130,18 +130,11 @@ pub fn install(src: &Path) -> Result<PathBuf> {
     let _ = std::fs::remove_dir_all(&previous);
 
     // Which release this is, for core_stale. Read from the archive's own name,
-    // fury-core-<release>-<platform>.tar.xz, which is what the download and
-    // the releases page both use. Anything else -- an unpacked directory, a
+    // pibrowse-core-<release>-<platform>.tar.xz (or the legacy fury-core- name).
+    // Anything else -- an unpacked directory, a
     // renamed file -- was put here by hand, and is recorded as such rather
     // than guessed at.
-    let release = src
-        .file_name()
-        .and_then(|n| n.to_str())
-        .and_then(|n| n.strip_prefix("fury-core-"))
-        .and_then(|n| n.split('-').next())
-        .filter(|r| crate::parse_release(r).is_some())
-        .unwrap_or("manual")
-        .to_string();
+    let release = release_from_name(src);
     if let Err(e) = std::fs::write(crate::paths::core_release_file(), &release) {
         tracing::warn!(error = %e, "could not record which release the core came from");
     }
@@ -158,6 +151,16 @@ pub fn install(src: &Path) -> Result<PathBuf> {
     eprintln!("installed {version}");
     eprintln!("  {}", installed.display());
     Ok(installed)
+}
+
+fn release_from_name(src: &Path) -> String {
+    src.file_name()
+        .and_then(|n| n.to_str())
+        .and_then(|n| n.strip_prefix("pibrowse-core-").or_else(|| n.strip_prefix("fury-core-")))
+        .and_then(|n| n.split('-').next())
+        .filter(|r| crate::parse_release(r).is_some())
+        .unwrap_or("manual")
+        .to_string()
 }
 
 /// Reports what is installed, without changing anything.
@@ -551,5 +554,38 @@ mod tests {
         let err = probe_version(&fake).unwrap_err().to_string();
         assert!(err.contains("does not start"), "{err}");
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[cfg(test)]
+mod release_name_tests {
+    use super::*;
+
+    #[test]
+    fn pibrowse_archive_records_the_release_version() {
+        assert_eq!(
+            release_from_name(Path::new("pibrowse-core-0.5.5-macos-arm64.tar.xz")),
+            "0.5.5"
+        );
+    }
+
+    #[test]
+    fn legacy_archive_still_records_the_release_version() {
+        assert_eq!(
+            release_from_name(Path::new("fury-core-0.5.4-windows-x64.tar.xz")),
+            "0.5.4"
+        );
+    }
+
+    #[test]
+    fn unpacked_renamed_and_chromium_version_archives_remain_manual() {
+        for name in [
+            "PiBrowse.app",
+            "download.tar.xz",
+            "pibrowse-core-157.0.8103.39-macos-arm64.tar.xz",
+            "fury-core-not-a-release-macos-arm64.tar.xz",
+        ] {
+            assert_eq!(release_from_name(Path::new(name)), "manual", "{name}");
+        }
     }
 }

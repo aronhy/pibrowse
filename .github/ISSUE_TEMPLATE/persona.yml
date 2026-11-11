@@ -6,8 +6,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Open **https://furyteamtop.github.io/fury-antidetect-browser/** in ordinary Google Chrome
-        (not Fury), press «Снять отпечаток» then «Скачать JSON», and drop the file into the
+        Open the upstream probe **https://furyteamtop.github.io/fury-antidetect-browser/** in ordinary Google Chrome
+        (not PiBrowse), press «Снять отпечаток» then «Скачать JSON», and drop the file into the
         field below. A workflow turns it into a persona, checks it and opens a pull request
         under your handle; you will see the link here.
   - type: input

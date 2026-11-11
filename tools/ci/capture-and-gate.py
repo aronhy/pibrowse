@@ -29,7 +29,7 @@ def find_core():
     if len(sys.argv) > 1:
         return sys.argv[1]
     for out in ("macos-arm64", "macos-arm64-lowmem"):
-        for name in ("Fury", "Chromium"):
+        for name in ("PiBrowse", "Fury", "Chromium"):
             p = ROOT / f"core/src/out/{out}/{name}.app/Contents/MacOS/{name}"
             if p.is_file():
                 return str(p)

@@ -33,7 +33,7 @@ if [ -z "$version" ]; then
 fi
 [ -n "$version" ] || { echo "!! could not read a version -- pass one" >&2; exit 1; }
 
-dest="${FURY_RELEASE_DIR:-/c/Fury-Release}"
+dest="${FURY_RELEASE_DIR:-/c/PiBrowse-Release}"
 mkdir -p "$dest"
 
 say() { printf '  %s\n' "$1"; }
@@ -45,7 +45,10 @@ echo "== collecting $version into $(cygpath -w "$dest" 2>/dev/null || echo "$des
 # earlier version sits in the same directory -- Fury_0.0.1_x64-setup.exe was
 # still there beside Fury_0.1.0 -- and picking the wrong one is a release that
 # installs last week's software under this week's name.
-nsis="$here/target/release/bundle/nsis/Fury_${version}_x64-setup.exe"
+nsis="$here/target/release/bundle/nsis/PiBrowse_${version}_x64-setup.exe"
+# Read earlier distribution names for compatibility, but prefer this build.
+[ -f "$nsis" ] || nsis="$here/target/release/bundle/nsis/pibrowse_${version}_x64-setup.exe"
+[ -f "$nsis" ] || nsis="$here/target/release/bundle/nsis/Fury_${version}_x64-setup.exe"
 if [ -f "$nsis" ]; then
   cp "$nsis" "$dest/fury-$version-windows-x64-setup.exe"
   say "installer   fury-$version-windows-x64-setup.exe"
@@ -113,9 +116,9 @@ if [ -d "$desktop" ] && [ -f "$dest/fury-$version-windows-x64-setup.exe" ]; then
   # the Desktop held 67 identical flame icons, and the newest was the one
   # hardest to find. Every installer is still in $dest; the Desktop only gets
   # the latest.
-  rm -f "$desktop"/Fury-Setup-*.exe
-  cp "$dest/fury-$version-windows-x64-setup.exe" "$desktop/Fury-Setup-$version.exe"
-  say "and Fury-Setup-$version.exe is on the Desktop (older copies removed)"
+  rm -f "$desktop"/PiBrowse-Setup-*.exe "$desktop"/Fury-Setup-*.exe
+  cp "$dest/fury-$version-windows-x64-setup.exe" "$desktop/PiBrowse-Setup-$version.exe"
+  say "and PiBrowse-Setup-$version.exe is on the Desktop (older copies removed)"
   # Windows caches a file's icon BY PATH. An installer built before the icon was
   # configured leaves that icon behind for every later build written to the same
   # place, which reads as "the logo did not work" when the logo is in the file.

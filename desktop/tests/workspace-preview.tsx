@@ -23,7 +23,7 @@ if (!["localhost", "127.0.0.1", "[::1]"].includes(location.hostname) || location
   throw new Error("WORKSPACE_PREVIEW_ISOLATION: serve this fixture on http://127.0.0.1:5274 only.");
 }
 
-document.title = "隔离验收 · Fury 环境工作台";
+document.title = "隔离验收 · PiBrowse 环境工作台";
 localStorage.setItem("fury.language", "zh");
 // Only the language preference is set. Existing list preferences are preserved
 // so a reload can verify persistence. No clear(), token reads, or real secrets.

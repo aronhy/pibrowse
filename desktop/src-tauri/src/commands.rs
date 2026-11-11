@@ -533,7 +533,7 @@ pub async fn set_server(state: State<'_, AppState>, url: String) -> R<Shell> {
 
     if !looks_like_fury {
         return Err(ApiErr::local(format!(
-            "{normalised} answered ({status}) but does not look like a Fury server."
+            "{normalised} answered ({status}) but does not look like a PiBrowse server."
         )));
     }
 

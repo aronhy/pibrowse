@@ -1,5 +1,7 @@
 # The extension catalogue
 
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names, storage paths and core filenames retain their existing names for compatibility; the product is PiBrowse.
+
 `catalogue.json` is what the Extensions section of the desktop offers to
 install by one click. Each entry is a Chrome Web Store id and a few words on
 why it is here. The `.crx` itself is never in this repository: it is fetched

@@ -1,13 +1,24 @@
+# PiBrowse
+
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
-  <img src="assets/logo.png" alt="Fury" width="420">
+  <source media="(prefers-color-scheme: dark)" srcset="assets/pibrowse-logo-dark.png">
+  <img src="assets/pibrowse-logo.png" alt="PiBrowse" width="420">
 </picture>
 
-Свободный антидетект-браузер с командной работой. Собственный форк Chromium,
-работает без сервера, self-hosted сервер — когда появляется команда. Без
-подписки, без оплаты за профиль, без телеметрии.
+PiBrowse — открытый браузер для отдельных профилей: локальная работа или свой сервер команды.
+Локальное использование и самостоятельное размещение остаются бесплатными. PiBrowse Cloud — отдельный необязательный платный сервис, который пока разрабатывается.
 
-**[furybrowser.dev](https://furybrowser.dev)** · *[English version](README.md)*
+[Сайт](https://pibrowse.dev/) · [Загрузки PiBrowse](https://github.com/aronhy/pibrowse/releases) · [English version](README.md)
+
+[Установка](docs/15-install.ru.md) · [Руководство](docs/19-guide.ru.md) · [Свой сервер](docs/13-self-hosting.md)
+
+PiBrowse основан на [Fury](https://github.com/furyteamtop/fury-antidetect-browser).
+Спасибо Богдану Шаповалову и участникам Fury. Лицензия — [AGPL-3.0-or-later](LICENSE).
+
+<details>
+<summary>Документация исходного проекта Fury</summary>
+
+Ниже сохранены техническая история и сведения о выпусках исходного Fury.
 
 > **Статус: в разработке, и теперь на macOS и на Windows.** Ядро собирается и
 > подменяет отпечаток, агент запускает профили, сервер и десктоп работают.
@@ -360,3 +371,5 @@ Fury — независимый проект, не связанный с Google.
 
 Вопросы по замерам, сайт, поймавший профиль, или персона с вашей машины —
 туда или в issue tracker.
+
+</details>

@@ -1,11 +1,13 @@
 # Contributed personas
 
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names, storage paths and core filenames retain their existing names for compatibility; the product is PiBrowse.
+
 One real machine per file. The file name is the persona's id.
 
 The short way in needs no install: open
-**https://furyteamtop.github.io/fury-antidetect-browser/** in ordinary Chrome,
+the upstream probe **https://furyteamtop.github.io/fury-antidetect-browser/** in ordinary Chrome,
 press «Снять отпечаток» → «Скачать JSON», drop the file into
-[the issue form](https://github.com/furyteamtop/fury-antidetect-browser/issues/new?template=persona.yml).
+[the issue form](https://github.com/aronhy/pibrowse/issues/new?template=persona.yml).
 A workflow converts it, checks it and opens the pull request under your handle
 (`contributed_by`), with what you said the machine was (`machine`). The other
 ways — **Settings → Add this machine to the catalogue** in the desktop, or

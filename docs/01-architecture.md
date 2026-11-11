@@ -1,5 +1,7 @@
 # 01 — Архитектура
 
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names, storage paths and core filenames retain their existing names for compatibility; the product is PiBrowse.
+
 ## Принципы
 
 1. **Спуфинг только в ядре.** Ни одной подмены через JS-инжект. Если что-то нельзя пропатчить в C++ — это не входит в продукт. Причина в [02](02-fingerprint-surface.md).
@@ -145,8 +147,8 @@ Rust + axum + Postgres. Отвечает за: организации, прое�
 `agent/src/bundle.rs:138-210`), сервер видит шифротекст, завёрнутый ключ и дайджест
 **шифротекста**. Синхронизация работает целиком, но без дельт: каждое закрытие профиля
 льёт бандл полностью (`agent/src/ipc.rs:1426-1437`, `server/src/api.rs:2778` — `kind`
-зашит строкой `'snapshot'`). Третий пункт сделан в этом порядке: открытый сервер
-`srv.furybrowser.dev` с `FURY_OPEN_SIGNUP=1`, адрес подставлен в приложении
+зашит строкой `'snapshot'`). Для командной работы укажите
+адрес своего сервера; по умолчанию адрес не задан
 (`desktop/src/defaults.ts`) и редактируется. Каждая регистрация — своя
 организация; изоляция между ними — RLS ([13](13-self-hosting.md), «Сервер, на
 который пускают посторонних»).

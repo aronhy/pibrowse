@@ -777,11 +777,10 @@
 # Measured after building: Fury.app, Fury Framework.framework, four Fury Helper
 # bundles, CFBundleName "Fury", CFBundleIdentifier dev.fury.core.
 #
-# THE ICONS ARE NOT IN THIS PATCH. They are PNGs and an .icns, and a quilt
-# series carrying binaries is one nobody can read or rebase — the same argument
-# link-widevine.sh makes for the CDM. core/build/link-icons.sh copies them out
-# of assets/ before a build, and skipping it produces a browser called Fury
-# wearing Chromium's icons, which is worse than either.
+# Native macOS app.icns, Assets.car and catalogue images stay upstream Chromium.
+# core/build/link-icons.sh restores them from Chromium Git HEAD, prepares the
+# internal PiBrowse logos/wordmarks/favicon, and 0905 overlays the profile number
+# on the original native/Dock icon at runtime. build.sh runs that preparation.
 #
 # NOTHING A PAGE CAN READ MOVES, and that was checked rather than assumed. The
 # User-Agent product string is a hardcoded literal — version_info_with_user_agent
@@ -861,3 +860,21 @@
 # core is unchanged. Reads window.profileName, which the agent adds at
 # launch; a config without it changes nothing but the pinning.
 0904-windows-profile-name.patch
+
+# The macOS Dock icon overlays the profile number on the original engine icon.
+0905-macos-dock-profile-icon.patch
+
+# PiBrowse product UI, with upstream copyrights and all locale translations retained.
+0906-product-ui-branding.patch
+
+# Operator-visible diagnostics use PiBrowse; compatibility switches and fields stay unchanged.
+0907-diagnostic-branding.patch
+
+# Current-product internal vector marks are traced from the approved PiBrowse raster.
+0908-internal-product-glyph.patch
+
+# Preserve identical vector declarations while regenerating changed drawing definitions.
+0909-stable-vector-icon-header.patch
+
+# Current-product logo accessible names reuse the version page product label.
+0910-version-image-accessible-name.patch

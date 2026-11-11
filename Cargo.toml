@@ -3,11 +3,11 @@ resolver = "2"
 members = ["server", "agent", "shared-rs", "platform-rs", "tools/detect-suite", "desktop/src-tauri"]
 
 [workspace.package]
-version = "0.5.4"
+version = "0.5.5"
 edition = "2021"
 rust-version = "1.80"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/furyteamtop/fury-antidetect-browser"
+repository = "https://github.com/aronhy/pibrowse"
 
 [workspace.dependencies]
 anyhow = "1"

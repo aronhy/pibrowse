@@ -260,6 +260,25 @@ impl Store {
         })
     }
 
+    /// The Dock identifies a profile by its first-launch number on this machine.
+    /// This also covers team profiles, whose records live on the server.
+    pub async fn window_number(&self, profile_id: &str) -> anyhow::Result<i64> {
+        sqlx::query(
+            "INSERT INTO window_numbers (profile_id)
+             SELECT ? WHERE NOT EXISTS (SELECT 1 FROM window_numbers WHERE profile_id = ?)
+             ON CONFLICT (profile_id) DO NOTHING",
+        )
+        .bind(profile_id)
+        .bind(profile_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(sqlx::query_scalar("SELECT number FROM window_numbers WHERE profile_id = ?")
+            .bind(profile_id)
+            .fetch_one(&self.pool)
+            .await?)
+    }
+
     async fn migrate(&self) -> anyhow::Result<()> {
         sqlx::raw_sql(
             r#"
@@ -316,6 +335,11 @@ impl Store {
             );
 
             CREATE INDEX IF NOT EXISTS profiles_by_project ON profiles(project_id);
+
+            CREATE TABLE IF NOT EXISTS window_numbers (
+                number      INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_id  TEXT NOT NULL UNIQUE
+            );
 
             -- What a shared account needs besides the browser: the login, and
             -- the two-factor seed that goes with it.
@@ -1188,6 +1212,27 @@ mod credential_tests {
             .await
             .unwrap();
         (dir, store, id)
+    }
+
+    #[tokio::test]
+    async fn window_numbers_are_unique_and_survive_reopening_the_store() {
+        let dir = crate::tmp::TempDir::new("window-numbers");
+        let path = dir.join("store.db");
+        let store = Store::open_for_tests(&path).await.unwrap();
+        let (a, b, same) = tokio::join!(
+            store.window_number("local-a"),
+            store.window_number("team-b"),
+            store.window_number("local-a"),
+        );
+        let (a, b) = (a.unwrap(), b.unwrap());
+        assert_ne!(a, b);
+        assert_eq!(same.unwrap(), a);
+        drop(store);
+
+        let store = Store::open_for_tests(&path).await.unwrap();
+        assert_eq!(store.window_number("team-b").await.unwrap(), b);
+        assert_eq!(store.window_number("local-a").await.unwrap(), a);
+        assert!(store.window_number("local-c").await.unwrap() > a.max(b));
     }
 
     /// The permission to open without a proxy has to survive being written and

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fury detect-suite — probe</title>
+<title>PiBrowse detect-suite — probe</title>
 <style>
   :root { color-scheme: dark; }
   body {
@@ -54,14 +54,14 @@
 </head>
 <body>
 
-<h1>Fury detect-suite — probe</h1>
+<h1>PiBrowse detect-suite — probe</h1>
 <div class="sub">
   Снимает полный отпечаток и сравнивает значения между контекстами исполнения.
-  Открой эту страницу в браузере, который проверяешь: настоящем Chrome, AdsPower, Fury.
+  Открой эту страницу в браузере, который проверяешь: настоящем Chrome, AdsPower, PiBrowse.
 </div>
 
 <div id="phoneHow" hidden>
-  <b>Снимок телефона для Fury</b>
+  <b>Снимок телефона для PiBrowse</b>
   <ol>
     <li>Откройте эту страницу в Chrome на телефоне с Android.</li>
     <li>Держите телефон в руке, как обычно, и нажмите «Снять отпечаток». Это около 10 секунд, не кладите телефон.</li>
@@ -111,7 +111,7 @@
     c.className = 'sub';
     c.style.marginTop = '-12px';
     c.innerHTML = 'Снял → «Скачать JSON» → перетащи файл в '
-      + '<a href="https://github.com/furyteamtop/fury-antidetect-browser/issues/new?template=persona.yml" target="_blank" rel="noopener" style="color:#60a5fa">форму</a>. '
+      + '<a href="https://github.com/aronhy/pibrowse/issues/new?template=persona.yml" target="_blank" rel="noopener" style="color:#60a5fa">форму</a>. '
       + 'Страница ничего не отправляет сама.';
     $('posted').after(c);
     // A phone came here to be captured: say how, in its own words, first.
@@ -235,7 +235,7 @@
     },
     {
       what: 'Нет переменных ChromeDriver в window',
-      why: 'cdc_-переменные означают запуск через Selenium. Fury по умолчанию должен быть чист.',
+      why: 'cdc_-переменные означают запуск через Selenium. PiBrowse по умолчанию должен быть чист.',
       run: (d) => {
         const a = d.engine.automation;
         const found = [a.cdcVars, a.documentCdc].filter(Boolean).join(',');

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-# Generate every derived icon size from assets/icon.png.
+# Generate platform sizes from the approved PiBrowse raster artwork.
 #
 # One source, many outputs, and none of the outputs are edited by hand — an icon
 # set where one size was touched separately is how an app ends up with a
@@ -12,6 +12,11 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 SRC="$HERE/icon.png"
+
+# The approved wordmarks and browser icon are source artwork, never redrawn.
+python3 "$HERE/generate-browser-icon.py"
+cp "$HERE/pibrowse-logo.png" "$HERE/logo.png"
+cp "$HERE/pibrowse-logo-dark.png" "$HERE/logo-dark.png"
 
 [ -f "$SRC" ] || { echo "!! assets/icon.png not found. See assets/README.md." >&2; exit 1; }
 
@@ -42,12 +47,15 @@ for s in 32 64 128 256 512; do
   sips -z $s $s "$SRC" --out "$TAURI/${s}x${s}.png" >/dev/null
 done
 cp "$TAURI/256x256.png" "$TAURI/128x128@2x.png"
-sips -z 107 107 "$SRC" --out "$TAURI/Square107x107Logo.png" >/dev/null
-sips -z 142 142 "$SRC" --out "$TAURI/Square142x142Logo.png" >/dev/null
+for s in 30 44 71 89 107 142 150 284 310; do
+  sips -z "$s" "$s" "$SRC" --out "$TAURI/Square${s}x${s}Logo.png" >/dev/null
+done
+sips -z 50 50 "$SRC" --out "$TAURI/StoreLogo.png" >/dev/null
 cp "$SRC" "$TAURI/icon.png"
+cp "$SRC" "$ROOT/desktop/src-tauri/icon.png"
 
 echo "==> macOS .icns"
-ICONSET="$(mktemp -d)/Fury.iconset"
+ICONSET="$(mktemp -d)/PiBrowse.iconset"
 mkdir -p "$ICONSET"
 for s in 16 32 128 256 512; do
   sips -z $s $s "$SRC" --out "$ICONSET/icon_${s}x${s}.png" >/dev/null
@@ -84,8 +92,7 @@ echo "==> social preview"
 # the name, the description and the avatar, so the fallback is respectable
 # rather than blank. This is polish.
 #
-# 1280x640 exactly, because GitHub crops to 2:1 and the sources are 1920x819
-# (2.34:1). Uploading a source directly loses a slice off the top and bottom.
+# 1280x640 exactly, because GitHub crops cards to 2:1.
 #
 # The dark wordmark on the brand's near-black, rather than the light one: every
 # client that shows this puts it on its own background, some white and some
@@ -96,7 +103,7 @@ from PIL import Image
 
 src, out = sys.argv[1], sys.argv[2]
 W, H = 1280, 640
-BG = (13, 14, 18)          # sampled from icon.png's own background
+BG = (12, 23, 51)          # PiBrowse's dark preview background
 
 logo = Image.open(src).convert("RGBA")
 # Crop to the ink. The source carries transparent margins of its own, and

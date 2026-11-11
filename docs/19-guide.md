@@ -1,4 +1,6 @@
-# Using Fury
+# Using PiBrowse
+
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names, storage paths and core filenames retain their existing names for compatibility; the product is PiBrowse.
 
 For the people who work in the application: making profiles, giving access to
 colleagues, updating. Installing it is in [15](15-install.md); running your own
@@ -8,7 +10,7 @@ team server is in [14](14-team-server.md) (Russian). Everything else is here.
 
 ## 1. First start
 
-After installing, Fury offers **Download the browser**. That is the browser
+After installing, PiBrowse offers **Download the browser**. That is the browser
 your profiles open in, 100 to 150 MB, once. Profiles do not open without it.
 
 Then the profile list opens straight away. This is working **without an
@@ -23,20 +25,20 @@ left, next to the computer's name, leads there too.
 
 | What to press there | When | Then |
 |---|---|---|
-| **Connect** (`srv.furybrowser.dev` is filled in) | You already have an account | Email and password |
-| **Create an account**, under the field after "No account yet?" | You are starting a team on our server | Email, password and a team name. You become its owner |
+| **Connect** (enter your team server address) | You already have an account | Email and password |
+| **Create an account**, under the field after "No account yet?" | You are starting a team on the configured server | Email, password and a team name. You become its owner |
 | **I have an invitation**, next to it | A colleague invited you and sent a code | The code and your own password. Then wait for an owner or admin to let you in |
 
-If your team runs its own server, type its address in the field instead of ours.
+Enter the server supplied by your team. PiBrowse does not prefill an upstream server address.
 
-All of it is free, alone or as a team.
+Local use and self-hosting are free. PiBrowse Cloud is a separate optional paid hosting service under development.
 
 **A team account's password cannot be recovered.** It encrypts the team's data
 on your machine and nobody holds a copy, the server included. Put it in a
 password manager right away.
 
 Profiles made before connecting stay on the computer, under **On this machine**
-on the left. After signing out of a team account Fury opens on the sign-in
+on the left. After signing out of a team account PiBrowse opens on the sign-in
 screen, with the same buttons and **Work without an account**.
 
 ## 2. Profiles
@@ -48,7 +50,7 @@ screen, with the same buttons and **Work without an account**.
 - **General**: name, tags, stage (for example "warming", "ready"), notes and
   the pages it opens with.
 - **Proxy**: pick one or add a new one right there.
-- **Device**: which device the profile presents. Fury picks it from a
+- **Device**: which device the profile presents. PiBrowse picks it from a
   catalogue of real machines; no need to change it.
 - **Machine settings**: languages, timezone, geolocation, screen, CPU, memory,
   GPU. Languages, timezone and geolocation follow the country the proxy exits
@@ -80,7 +82,7 @@ Two buttons above the list:
   Kameleo and Vision. The dialog says what each needs: an API token from its
   settings, or the app running. Names, notes, tags, start pages, your own
   proxies with login and password, and cookies come over. The fingerprint does
-  not: each profile gets a device from Fury's catalogue with the same OS.
+  not: each profile gets a device from PiBrowse's catalogue with the same OS.
 - **Import CSV…**: a table of names, proxies, tags and so on.
 
 Imports file profiles on this computer, so the buttons show with a project on
@@ -97,9 +99,9 @@ this computer open or with none. Import first, then give profiles to the team.
 - **Warm up…** runs now, once, or **on a schedule**: for a number of days,
   each profile reads a few of the sites every day at random times within the
   hours you set, in its own timezone (its proxy's if it has none), and closes
-  again. Fury has to be running and the computer awake; a day it slept
+  again. PiBrowse has to be running and the computer awake; a day it slept
   through is skipped, not made up. A profile you have open is left alone, and
-  team profiles farm only while the Fury window is open. Plans show above the
+  team profiles farm only while the PiBrowse window is open. Plans show above the
   list, with **Pause** and **Remove plan**.
 - Search matches name, tag and proxy; tag and stage filters sit beside it.
 - A profile's **cookies** can be exported and imported as JSON.
@@ -137,12 +139,12 @@ The owner or an admin runs the team from **Users**.
 1. **Users → Team → Invite**: email and role, then **Create invitation**.
 2. A code appears. It is shown once, lasts 48 hours and works for one sign-up.
    Pass it on any way you like.
-3. They install Fury and press **I have an invitation** on the first screen
-   (or, if Fury is already running, **Settings → Team server → I have an
+3. They install PiBrowse and press **I have an invitation** on the first screen
+   (or, if PiBrowse is already running, **Settings → Team server → I have an
    invitation**), enter the code and choose their own password. You never see it.
 4. In **Users** they are marked **waiting to be let in**. Press **Let them in** and
    tick the projects they need.
-5. Before letting them in, check the **verification code**. Their Fury shows eight
+5. Before letting them in, check the **verification code**. Their PiBrowse shows eight
    digits on the waiting screen; the **Let them in** dialog shows the digits it
    expects. Ask the person for theirs privately and tick **They told me this
    code** only if they match.
@@ -231,21 +233,21 @@ encrypted on your machines; the server, ours or yours, cannot read it.
 ## 5. Updating
 
 When a new version is out, a bar at the top says so with an **Update** button:
-Fury downloads it, checks its signature, installs it and restarts. Profiles,
+PiBrowse downloads it, checks its signature, installs it and restarts. Profiles,
 proxies and settings stay. Close open profiles first; the button reminds you.
 
 The button arrived in 0.3.0. From an older version, install the new one by hand
-once from the [releases page](https://github.com/furyteamtop/fury-antidetect-browser/releases/latest).
+once from the [releases page](https://github.com/aronhy/pibrowse/releases/latest).
 
-Sometimes the browser itself updates; Fury then shows **Update the browser**, a
+Sometimes the browser itself updates; PiBrowse then shows **Update the browser**, a
 separate download that leaves profiles alone.
 
 ## 6. AI assistants
 
 **AI assistants**: Claude, Cursor and other assistants with MCP support can work
 with your profiles, for example "open every profile tagged warm and check the
-login held". **Connect** adds Fury to the assistant's settings. The assistant
-and its account are yours; Fury sends nothing anywhere.
+login held". **Connect** adds PiBrowse to the assistant's settings. The assistant
+and its account are yours; PiBrowse sends nothing anywhere.
 
 ## 7. Common questions
 
@@ -256,15 +258,15 @@ needs a proxy. Pick one, or choose "On this computer".
 none; team projects have no import. Before 0.3.1 the buttons were hidden on any
 app connected to a server: update.
 
-**Fury stays in the Dock "running in background" after quitting.** That was the
-background service kept up for open profiles. From 0.3.3 Fury quits fully when
+**PiBrowse stays in the Dock "running in background" after quitting.** That was the
+background service kept up for open profiles. From 0.3.3 PiBrowse quits fully when
 no profile is open; with profiles open, the service stays until the last one
 closes.
 
-**On a Mac, Fury takes gigabytes: each profile has its own 300 MB app.** That
+**On a Mac, PiBrowse takes gigabytes: each profile has its own 300 MB app.** That
 size is on paper only. Each profile gets its own copy of the browser named after
 it, because the Dock shows the app's name, and without it every profile would say
-"Fury". The copy is an APFS clone: it shares the disk blocks of the installed
+"PiBrowse". The copy is an APFS clone: it shares the disk blocks of the installed
 browser and writes nothing. Finder and `du` count every clone at full size, so
 40 profiles show as 13 GB while the free space on the disk barely moves.
 Measured: five clones of the 326 MB core took 0 MB of free space, one ordinary
@@ -282,6 +284,6 @@ admin removes the account and invites it again.
 with a Microsoft certificate. **More info → Run anyway**.
 
 **Found a bug or have an idea.** Open an
-[issue on GitHub](https://github.com/furyteamtop/fury-antidetect-browser/issues/new):
-one problem per issue, with a screenshot and the Fury version
+[issue on GitHub](https://github.com/aronhy/pibrowse/issues/new):
+one problem per issue, with a screenshot and the PiBrowse version
 (**Settings → About**).

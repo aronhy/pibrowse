@@ -1,5 +1,7 @@
 # 03 — Форк Chromium: сборка, патчи, ребейз
 
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names and storage paths retain their existing names. Legacy core filenames remain supported; a new macOS core uses `PiBrowse.app/Contents/MacOS/PiBrowse`.
+
 Этот документ — про главное операционное обязательство проекта. Не про «написать код один раз».
 
 ## Что такое ребейз каждые 4 недели
@@ -82,7 +84,7 @@ core/
     ├── apply.sh          # наложить серию; падает, если патч из series нет на диске
     ├── refresh.sh        # снять изменения из дерева обратно в патч
     ├── rebase.sh         # переехать на новый upstream-тег
-    ├── link-icons.sh     # положить иконки Fury в дерево — обязательный шаг, см. ниже
+    ├── link-icons.sh     # внутренние логотипы PiBrowse, native/Dock Chromium; build.sh зовёт сам
     ├── link-icons-windows.ps1  # то же для Windows (.ico, плитки, логотипы); build.sh зовёт сам
     ├── link-widevine.sh  # положить CDM из установленного Chrome рядом со сборкой
     └── build.sh          # gn gen + autoninja
@@ -197,7 +199,7 @@ use_siso = false
 не собиралась — единственный каталог в `core/src/out` это `macos-arm64-lowmem`.
 
 Universal-бандл собирается **не** через `lipo`. `lipo -create` на
-`Contents/MacOS/Fury` склеит лаунчер на 76 КБ и оставит однослойными фреймворк на
+`Contents/MacOS/PiBrowse` склеит лаунчер на 76 КБ и оставит однослойными фреймворк на
 540 МБ, пять хелпер-приложений и все dylib: получится бандл, который выглядит
 универсальным, запускается на своей архитектуре и на чужой не может загрузить
 собственный фреймворк. Правильный инструмент — `chrome/installer/mac/universalizer.py`
@@ -292,14 +294,22 @@ Metal сменило бы графический стек, который мы �
 
 ### 2a. Pillow для иконок
 
-`core/build/link-icons.sh` собирает `.icns` и `Assets.car` из
-`assets/icon.png` и импортирует `PIL`. В системном python3 на macOS его нет, и
-скрипт падает на `ModuleNotFoundError` посреди подготовки дерева — то есть после
-часа, ушедшего на `fetch.sh`.
+`core/build/link-icons.sh` использует `PIL` для внутренних PNG/SVG-логотипов и
+словесных знаков PiBrowse в `chrome/app/theme` и `components/resources`. Исходники —
+утверждённые `assets/icon-browser.png` (с fallback на `icon.png`) и
+`assets/pibrowse-logo{,-dark}.png`. Размер каждого исходного ресурса сохраняется.
+В системном python3 на macOS Pillow может отсутствовать:
 
 ```bash
 python3 -m pip install --user Pillow
 ```
+
+Native/Dock-база на macOS остаётся исходной Chromium: `app.icns`, `Assets.car`
+и изображения `Assets.xcassets` восстанавливаются из Git HEAD выбранного
+Chromium checkout. Номер профиля рисует ядро при запуске. Скрипт не перерисовывает
+эту базу и не компилирует новый catalogue; без полной Git-базы он завершится
+ошибкой до установки ресурсов. `pibrowse-brand.json` фиксирует revision,
+`icon_style=chromium-numbered` и SHA256 ICNS/CAR.
 
 ### 3. macOS поставляется с bash 3.2
 
@@ -398,19 +408,19 @@ git ls-remote --tags https://chromium.googlesource.com/chromium/src.git | grep -
 #    выясняется это только на следующем ребейзе. Так уже было дважды: 0031 унёс
 #    BUILD.gn и DEPS из 0001, 0302 дважды унёс fury_switches.{h,cc}.
 
-# 5. Положить иконки — между apply.sh и build.sh, не после
+# 5. Подготовить внутренние логотипы PiBrowse и исходную native/Dock-базу
 ./core/build/link-icons.sh
-#    Иконки — это PNG и .icns, а серия патчей в стиле quilt с бинарями внутри
-#    нечитаема и неребейзима, поэтому они кладутся скриптом, а не патчем 0900.
-#    Пропустить — получить браузер по имени Fury в иконках Chromium, что хуже
-#    любого из двух. Требует Pillow: python3 -m pip install --user Pillow
+#    build.sh вызывает этот шаг автоматически на macOS; отдельный вызов нужен
+#    перед прямым gn/autoninja. Native/Dock Chromium + номер — выбранный стиль,
+#    внутренние product logo/wordmark и favicon — PiBrowse. Требует Pillow.
 
 # 6. Собрать и снять отпечаток
 ./core/build/build.sh macos-arm64
-#    Бинарь: core/src/out/<target>/Fury.app — переименование делает 0900.
+#    Бинарь: core/src/out/<target>.noindex/PiBrowse.app/Contents/MacOS/PiBrowse.
+#    Имена нового бандла и исполняемого файла задаёт 0900.
 #    Детект-сюит сравнивает ДАМПЫ, а не бинари, поэтому сначала снять:
 tools/detect-suite/capture-chrome.sh fury-151 \
-  core/src/out/macos-arm64.noindex/Fury.app/Contents/MacOS/Fury
+  core/src/out/macos-arm64.noindex/PiBrowse.app/Contents/MacOS/PiBrowse
 cargo run -p fury-detect -- gate tools/detect-suite/baselines/fury-151.json
 cargo run -p fury-detect -- diff --mode spoof \
   tools/detect-suite/baselines/chrome-151-macos-arm64.json \
@@ -419,25 +429,26 @@ cargo run -p fury-detect -- diff --mode spoof \
 #    настроенном профиле: поднять collector.py и открыть его auto-URL внутри профиля.
 ```
 
-Шаг 5 не опционален. Патч может успешно наложиться и при этом перестать работать —
+При прямом вызове gn/autoninja шаг 5 не опционален; build.sh выполняет его сам.
+Проверки после сборки также обязательны: патч может успешно наложиться и при этом перестать работать —
 Google переименовал метод, и ваш вызов теперь висит в мёртвой ветке.
 
 ## Брендинг
 
-Chromium — BSD-3, форкать можно. Но **нельзя** использовать название Chrome, Chromium,
-логотип Google и связанные знаки в вашем продукте. Патч `0900-branding.patch`
-это и делает: он написан, активен в серии и меняет ровно один файл —
-`chrome/app/theme/chromium/BRANDING`. Сборка называется Fury и ставит bundle id
-`dev.fury.Fury`.
+Имена новой сборки задаёт активный патч `0900-branding.patch`; он меняет
+`chrome/app/theme/chromium/BRANDING`. Сборка называется PiBrowse и ставит bundle id
+`dev.fury.core`. Условия распространения и upstream attribution описаны в
+[docs/10](10-legal-licensing.md).
 
 Менять надо данные, а не исходники: `chrome/app/theme/chromium/BRANDING`
 читается `build/util/branding.gni` в `chrome_product_full_name` и mac bundle id, а от них
 уже производны `.app`, `.framework`, helper-бандлы, `CFBundleIdentifier`, поиск runtime
 framework и crash-аннотация. Ни `chrome/BUILD.gn`, ни `app-Info.plist`, ни
 `chrome_constants.cc` трогать не нужно. Вторая правка — `chromium_strings.grd`, это About
-и `chrome://version`. Блокируют иконки: `chrome/BUILD.gn` кладёт в бандл `app.icns`,
-`Assets.car` и `Assets.xcassets/AppIcon.icon`, а переименование с иконками самого
-Chromium хуже, чем отсутствие переименования.
+и `chrome://version`. Внутренние логотипы и favicon подготавливает `link-icons.sh`,
+включая отдельные wordmark-ресурсы `components/resources`. Native `app.icns`,
+`Assets.car` и `Assets.xcassets/AppIcon.appiconset` сохраняют исходный Chromium;
+номер профиля добавляется ядром при запуске, без изменения подписанных ресурсов.
 
 **Правило, которое этот патч не имеет права нарушить:** ничего из того, что читает
 страница, не двигается. User-Agent, `navigator.appName`, `navigator.vendor` и список

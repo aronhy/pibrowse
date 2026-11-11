@@ -111,7 +111,12 @@ if [ "$adhoc" = 1 ] && [ "$notarize" = 1 ]; then
   exit 2
 fi
 
-app="$out_dir/Fury.app"
+app="$out_dir/PiBrowse.app"
+if [ ! -d "$app" ]; then
+  for candidate in "$out_dir/Fury.app" "$out_dir/pibrowse.app"; do
+    if [ -d "$candidate" ]; then app="$candidate"; break; fi
+  done
+fi
 [ -d "$app" ] || { echo "!! no $app — build the core first (core/build/build.sh)" >&2; exit 1; }
 
 if [ "$adhoc" = 1 ]; then
@@ -164,10 +169,15 @@ fi
 # load TAPI file ... unknown target"). The signing needs neither tool: they make
 # a disk image, and --disable-packaging is passed below. The two targets that
 # matter are copies and a template, and those still build.
-packaging="$out_dir/Fury Packaging"
+packaging="$out_dir/PiBrowse Packaging"
 echo "== assembling the packaging tools (they are not part of \`ninja chrome\`)"
 (cd "$src" && ./third_party/ninja/ninja -C "$(basename "$out_dir" | sed "s|^|out/|")" \
     chrome/installer/mac:copy_signing chrome:entitlements)
+if [ ! -d "$packaging" ]; then
+  for candidate in "$out_dir/Fury Packaging" "$out_dir/pibrowse Packaging"; do
+    if [ -d "$candidate" ]; then packaging="$candidate"; break; fi
+  done
+fi
 for f in sign_chrome.py rebrand_chrome.py universalizer.py pkg-dmg pkg_preinstall.in pkg_postinstall.in; do
   cp "$src/chrome/installer/mac/$f" "$packaging/$f"
 done
@@ -232,10 +242,14 @@ fi
 # — because the pipeline is built to emit several channels at once and "stable"
 # is what the None channel is called on disk. Looking for it at the top level
 # finds nothing after a signing run that succeeded completely.
-signed="$staged/stable/Fury.app"
-[ -d "$signed" ] || signed="$staged/Fury.app"
+signed="$staged/stable/PiBrowse.app"
+if [ ! -d "$signed" ]; then
+  for candidate in "$staged/PiBrowse.app" "$staged/stable/Fury.app" "$staged/Fury.app" "$staged/stable/pibrowse.app" "$staged/pibrowse.app"; do
+    if [ -d "$candidate" ]; then signed="$candidate"; break; fi
+  done
+fi
 [ -d "$signed" ] || {
-  echo "!! the pipeline reported success and produced no Fury.app. Under $staged:" >&2
+  echo "!! the pipeline reported success and produced no PiBrowse.app (or legacy bundle). Under $staged:" >&2
   find "$staged" -maxdepth 2 >&2
   exit 1
 }
@@ -262,7 +276,7 @@ if [ "$notarize" = 1 ]; then
   echo "== notarising"
   # ditto, not zip: `zip -r` mangles the symlinks a framework is made of, and
   # the submission then fails in a way that reads as a signing fault.
-  zip="$staged/Fury.zip"
+  zip="$staged/PiBrowse.zip"
   rm -f "$zip"
   ditto -c -k --keepParent "$signed" "$zip"
   xcrun notarytool submit "$zip" "${notary_auth[@]}" --wait
@@ -286,7 +300,13 @@ echo
 # aborted on launch. codesign --verify answers "is this signature well formed",
 # which is a different question from "will the loader accept it".
 echo "== does it start"
-if version=$("$signed/Contents/MacOS/Fury" --version 2>&1); then
+core_binary="$signed/Contents/MacOS/PiBrowse"
+if [ ! -x "$core_binary" ]; then
+  for candidate in "$signed/Contents/MacOS/Fury" "$signed/Contents/MacOS/pibrowse"; do
+    if [ -x "$candidate" ]; then core_binary="$candidate"; break; fi
+  done
+fi
+if version=$("$core_binary" --version 2>&1); then
   echo "   $version"
 else
   echo "!! the signed browser does not start:" >&2

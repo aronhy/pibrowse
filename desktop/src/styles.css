@@ -160,11 +160,21 @@ textarea {
 }
 
 .brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
   padding: var(--s-1) var(--s-3) var(--s-3);
   color: var(--accent);
   font-size: 16px;
   font-weight: 650;
   letter-spacing: 0.02em;
+}
+
+.loginBrand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
 }
 
 .sidebar nav {

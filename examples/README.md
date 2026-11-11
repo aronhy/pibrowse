@@ -1,6 +1,8 @@
 # Automation
 
-Driving Fury profiles from a script: what the API is, what it deliberately is
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names, storage paths and core filenames retain their existing names for compatibility; the product is PiBrowse.
+
+Driving PiBrowse profiles from a script: what the API is, what it deliberately is
 not, and four working examples.
 
 ## Turning it on
@@ -72,8 +74,8 @@ in which case the request succeeds and returns no endpoint — check for
 `ws_endpoint` rather than assuming it.
 
 **Automation is detectable and this does not hide that.** `navigator.webdriver`
-is false in Fury, but a page can time `console.debug` and see a driver. Measured
-on Fury 150, microseconds per call:
+is false in PiBrowse, but a page can time `console.debug` and see a driver. Measured
+on PiBrowse 150, microseconds per call:
 
 | | `"hello"` | 50-key object | 800-key object |
 |---|---|---|---|
@@ -83,7 +85,7 @@ on Fury 150, microseconds per call:
 
 Attaching costs nothing; `Runtime.enable` costs 2.7x on a string and more as the
 argument grows. Every driver calls it. Real Chrome measures the same, so this
-detects a driven browser rather than Fury — which is no comfort if the driven
+detects a driven browser rather than PiBrowse — which is no comfort if the driven
 browser is yours. Run it yourself with
 [`tools/detect-suite/cdp-timing.py`](../tools/detect-suite/cdp-timing.py).
 

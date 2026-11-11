@@ -1,5 +1,7 @@
 # Contributing
 
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names, storage paths and core filenames retain their existing names for compatibility; the product is PiBrowse.
+
 The short version: measurements are welcome, claims are not.
 
 This project's whole method is that every statement about the browser has a
@@ -15,7 +17,7 @@ a crowd for somebody to hide in. If your machine is not in it — a different GP
 a different screen, a Linux laptop, an older Windows — that is the highest-value
 contribution there is, and it takes one command.
 
-Run the probe in an ordinary browser, not Fury:
+Run the probe in an ordinary browser, not PiBrowse:
 
 ```bash
 cd tools/detect-suite && python3 collector.py
@@ -33,11 +35,11 @@ GPU, screen, fonts, audio latency and installed speech voices.
 
 ## Reporting a detection
 
-If a site catches a Fury profile, that is the most valuable bug report this
+If a site catches a PiBrowse profile, that is the most valuable bug report this
 project can get, and the useful form of it is:
 
 1. What the site is (or, if you would rather not say, what it checks).
-2. A capture from the Fury profile, redacted:
+2. A capture from the PiBrowse profile, redacted:
    `cargo run -p fury-detect -- redact <capture>.json <capture>-redacted.json`
 3. The same capture from real Chrome on the same machine, if you can.
 
@@ -63,7 +65,7 @@ named concern.
 the measurement said they were unnecessary: navigator.plugins (byte-identical to
 Chrome already), CSS media features (zero differences across 21 probes), and
 TLS/JA3 (BoringSSL randomises extension order per connection, so Chrome has no
-stable fingerprint to match). A patch that makes Fury *differ* from Chrome is
+stable fingerprint to match). A patch that makes PiBrowse *differ* from Chrome is
 worse than no patch.
 
 **"It applies" and "it compiles" are not "it works."** Patch 0082 applied,

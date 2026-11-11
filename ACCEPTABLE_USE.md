@@ -1,6 +1,6 @@
 # Acceptable use
 
-Fury is a browser privacy and multi-account management tool. Like a VPN or a
+PiBrowse is a browser privacy and multi-account management tool. Like a VPN or a
 password manager, it is dual-use: the same capability that protects a legitimate
 operator protects a malicious one. This document sets the boundaries of what
 this project supports, what it will help with, and what it will not.
@@ -51,5 +51,5 @@ bot for any particular website.
 The "operator cannot export data" permission model is designed against a
 dishonest employee without special skills. It is not designed against a
 motivated reverse engineer with administrator rights on their own machine —
-that person can dump process memory. Anyone deploying Fury for a team should
+that person can dump process memory. Anyone deploying PiBrowse for a team should
 understand this rather than treat the restriction as absolute.

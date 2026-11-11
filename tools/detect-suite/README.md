@@ -1,6 +1,8 @@
 # detect-suite
 
-The measuring instrument. Everything else in Fury is judged by what this reports.
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names, storage paths and core filenames retain their existing names for compatibility; the product is PiBrowse.
+
+The measuring instrument. Everything else in PiBrowse is judged by what this reports.
 
 Built **before** the first Chromium patch on purpose: writing patches first and
 checking later is how a team spends six months on code that does not work.
@@ -23,7 +25,7 @@ A naive comparison of two fingerprint dumps reports 400 differences and tells yo
 nothing. The question is always *what kind* of difference it is:
 
 - **Value** differences — canvas hash, GPU string, user agent, font list.
-  Between real Chrome and Fury these **should** differ. That is the spoofing working.
+  Between real Chrome and PiBrowse these **should** differ. That is the spoofing working.
 - **Behavioural** differences — an API that exists in one and not the other, a
   getter that stopped being native, a codec that stopped being supported, a
   stability flag that flipped, cross-context consistency breaking.
@@ -40,7 +42,7 @@ fury-detect diff --mode identity run-a.json run-b.json
 ```
 
 ```bash
-# Real Chrome vs Fury. Values may differ, behaviour may not.
+# Real Chrome vs PiBrowse. Values may differ, behaviour may not.
 fury-detect diff --mode spoof baselines/chrome-151-macos-arm.json candidate.json
 ```
 
@@ -60,7 +62,7 @@ It starts the collector if needed, launches the browser on a **throwaway
 profile** — a reference baseline must describe a clean browser, not one shaped by
 whatever extensions the operator installed — waits for the dump, and closes it.
 
-Manual, for browsers you cannot launch with flags (AdsPower profiles, Fury
+Manual, for browsers you cannot launch with flags (AdsPower profiles, PiBrowse
 profiles): start the collector and open the auto URL inside the profile.
 
 ```bash
@@ -169,7 +171,7 @@ expose a debugging port.
 The catalogue has fourteen machines. Fourteen is a thin crowd, and adding one is
 the single most useful thing somebody with a different computer can do.
 
-Run the probe in an ORDINARY browser on your machine — Chrome, not Fury — then:
+Run the probe in an ORDINARY browser on your machine — Chrome, not PiBrowse — then:
 
 ```bash
 cargo run -p fury-detect -- persona baselines/your-capture.json > persona.json

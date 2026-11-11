@@ -31,7 +31,7 @@
 ; scary dialog, which is exactly what this file exists to remove.
 
 !macro NSIS_HOOK_PREINSTALL
-  DetailPrint "Closing Fury if it is running..."
+  DetailPrint "Closing PiBrowse if it is running..."
   nsExec::Exec 'taskkill /F /IM fury-agent.exe'
   Pop $0
   nsExec::Exec 'taskkill /F /IM fury-desktop.exe'
@@ -47,7 +47,7 @@
 !macro NSIS_HOOK_PREUNINSTALL
   ; Same reason, and more pressing: an uninstaller that cannot delete the agent
   ; leaves the directory behind and reports success.
-  DetailPrint "Closing Fury if it is running..."
+  DetailPrint "Closing PiBrowse if it is running..."
   nsExec::Exec 'taskkill /F /IM fury-agent.exe'
   Pop $0
   nsExec::Exec 'taskkill /F /IM fury-desktop.exe'

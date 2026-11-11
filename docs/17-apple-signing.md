@@ -1,5 +1,7 @@
 # 17 — Apple Developer: как получить подпись
 
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names and storage paths retain their existing names. Legacy core filenames remain supported; a new macOS core uses `PiBrowse.app/Contents/MacOS/PiBrowse`. The `Fury Framework` error below records a legacy build.
+
 Задача [0.2](16-parity-and-beyond.md) — «подпись и нотаризация macOS, 3 дня +
 сертификат». Три дня это работа, которая уже написана
 ([tools/release/sign-core.sh](../tools/release/sign-core.sh)); сертификат — это
@@ -30,7 +32,7 @@
 своих сборок **на своих машинах** через Personal Team. Нотаризации и Developer ID
 там нет, и это не лазейка, а прямо описанная граница.
 
-Для Fury это уже измерено и записано в `sign-core.sh`: ad-hoc подпись прогоняет
+На унаследованном ядре Fury (legacy) это было измерено и записано в `sign-core.sh`: ad-hoc подпись прогоняет
 пайплайн до конца, `codesign --verify --deep --strict` проходит, **и браузер не
 стартует**:
 
@@ -62,7 +64,7 @@ mapping process and mapped file (non-platform) have different Team IDs
 подписан бандл, читается кем угодно одной командой:
 
 ```bash
-codesign -dv --verbose=4 /Applications/Fury.app
+codesign -dv --verbose=4 /Applications/PiBrowse.app
 ```
 
 и там будет `Developer ID Application: Имя Фамилия (TEAMID)`. При Individual это
@@ -126,7 +128,7 @@ Media Services в России не работает, а на форумах р�
 а страница именно про Developer ID — только «Account Holder». Исходить стоит из
 второго.
 
-**Mac App Store для Fury закрыт, и не по причине качества.** Проект под
+**Mac App Store для PiBrowse закрыт, и не по причине качества.** Проект под
 AGPL-3.0, а условия App Store накладывают ограничения на дальнейшее
 распространение, несовместимые с копилефтом GPL-семейства — это известная
 коллизия, из-за которой в своё время из App Store убрали VLC. Отдельно от
@@ -416,8 +418,8 @@ Hardened Runtime и Sandbox — разные вещи, их часто пута�
 Тикет надо **прибить** к тому, что раздаётся:
 
 ```bash
-xcrun stapler staple Fury.app
-xcrun stapler validate Fury.app
+xcrun stapler staple PiBrowse.app
+xcrun stapler validate PiBrowse.app
 ```
 
 Без этого первый запуск на машине **без интернета** провалится: Gatekeeper не

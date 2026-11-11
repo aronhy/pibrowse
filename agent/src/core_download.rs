@@ -6,7 +6,7 @@
 //! This exists to delete a terminal step. Before it, installing Fury meant two
 //! downloads and then
 //!
-//!     fury-agent install-core ~/Downloads/fury-core-*.tar.xz
+//!     fury-agent install-core ~/Downloads/pibrowse-core-*.tar.xz
 //!
 //! typed into a shell, which is a reasonable thing to ask of a developer and an
 //! unreasonable thing to ask of somebody who came from a product where you
@@ -82,7 +82,7 @@ fn asset_infix() -> &'static str {
 }
 
 const RELEASES: &str =
-    "https://api.github.com/repos/furyteamtop/fury-antidetect-browser/releases?per_page=10";
+    "https://api.github.com/repos/aronhy/pibrowse/releases?per_page=10";
 
 /// Name and URL of the newest core asset for this platform.
 ///
@@ -108,31 +108,49 @@ async fn newest_asset(client: &reqwest::Client) -> Result<(String, String)> {
         .context("reading the release list")?;
 
     let infix = asset_infix();
-    let assets = releases
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|r| r.get("assets")?.as_array());
-
-    for release_assets in assets {
-        for a in release_assets {
-            let name = a.get("name").and_then(|v| v.as_str()).unwrap_or_default();
-            if name.starts_with("fury-core-") && name.contains(infix) {
-                let url = a
-                    .get("browser_download_url")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default();
-                if !url.is_empty() {
-                    return Ok((name.to_string(), url.to_string()));
-                }
-            }
-        }
+    if let Some(asset) = select_asset(&releases, infix) {
+        return Ok(asset);
     }
 
     anyhow::bail!(
         "no core asset for {infix} in the latest releases. The releases page has \
          the file if this is wrong; install it with `fury-agent install-core <file>`"
     )
+}
+
+/// Keep release order, preferring PiBrowse's name within each release. Legacy
+/// archives remain usable, but checksum files and other platforms never are.
+fn select_asset(releases: &serde_json::Value, infix: &str) -> Option<(String, String)> {
+    let suffix = format!("-{infix}.tar.xz");
+    for release in releases.as_array().into_iter().flatten() {
+        if release.get("draft").and_then(|v| v.as_bool()).unwrap_or(false) {
+            continue;
+        }
+        let Some(assets) = release.get("assets").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for prefix in ["pibrowse-core-", "fury-core-"] {
+            for asset in assets {
+                let name = asset.get("name").and_then(|v| v.as_str()).unwrap_or_default();
+                let Some(version) = name.strip_prefix(prefix).and_then(|n| n.strip_suffix(&suffix)) else {
+                    continue;
+                };
+                // The name becomes a temporary filename, so it must remain a
+                // single path component even if release metadata is malformed.
+                if version.is_empty() || version.contains('/') || version.contains('\\') {
+                    continue;
+                }
+                let url = asset
+                    .get("browser_download_url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                if !url.is_empty() {
+                    return Some((name.to_string(), url.to_string()));
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Download the newest core for this platform and install it.
@@ -260,4 +278,94 @@ async fn run(shared: &Shared) -> Result<PathBuf> {
 
 
     Ok(installed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn pibrowse_archive_is_preferred_to_legacy_name_in_the_same_release() {
+        let releases = json!([{
+            "draft": false, "prerelease": true, "tag_name": "v0.5.5",
+            "assets": [
+                {"name": "fury-core-0.5.5-macos-arm64.tar.xz", "browser_download_url": "https://example.test/legacy"},
+                {"name": "pibrowse-core-0.5.5-macos-arm64.tar.xz", "browser_download_url": "https://example.test/pibrowse"}
+            ]
+        }]);
+        assert_eq!(
+            select_asset(&releases, "macos-arm64"),
+            Some(("pibrowse-core-0.5.5-macos-arm64.tar.xz".into(), "https://example.test/pibrowse".into()))
+        );
+    }
+
+    #[test]
+    fn legacy_archive_remains_a_fallback() {
+        let releases = json!([{
+            "draft": false, "prerelease": false, "tag_name": "v0.5.4",
+            "assets": [{"name": "fury-core-0.5.4-linux-x64.tar.xz", "browser_download_url": "https://example.test/legacy"}]
+        }]);
+        assert_eq!(
+            select_asset(&releases, "linux-x64"),
+            Some(("fury-core-0.5.4-linux-x64.tar.xz".into(), "https://example.test/legacy".into()))
+        );
+    }
+
+    #[test]
+    fn only_the_exact_platform_archive_is_downloaded() {
+        let releases = json!([{
+            "draft": false, "prerelease": true, "tag_name": "v0.5.5",
+            "assets": [
+                {"name": "fury-core-0.5.5-macos-arm64.tar.xz.sha256", "browser_download_url": "https://example.test/checksum"},
+                {"name": "pibrowse-core-0.5.5-macos-x86_64.tar.xz", "browser_download_url": "https://example.test/intel"},
+                {"name": "fury-core-0.5.5-macos-arm64-debug.tar.xz", "browser_download_url": "https://example.test/debug"},
+                {"name": "pibrowse-core-0.5.5-windows-x64.tar.xz", "browser_download_url": "https://example.test/windows"},
+                {"name": "pibrowse-core-0.5.5-macos-arm64.tar.xz", "browser_download_url": "https://example.test/arm64"}
+            ]
+        }]);
+        assert_eq!(
+            select_asset(&releases, "macos-arm64"),
+            Some(("pibrowse-core-0.5.5-macos-arm64.tar.xz".into(), "https://example.test/arm64".into()))
+        );
+    }
+
+    #[test]
+    fn draft_is_skipped_but_a_published_prerelease_is_eligible() {
+        let releases = json!([
+            {"draft": true, "prerelease": true, "tag_name": "v0.5.6", "assets": [
+                {"name": "fury-core-0.5.6-macos-arm64.tar.xz", "browser_download_url": "https://example.test/draft"}
+            ]},
+            {"draft": false, "prerelease": true, "tag_name": "v0.5.5", "assets": [
+                {"name": "pibrowse-core-0.5.5-macos-arm64.tar.xz", "browser_download_url": "https://example.test/published"}
+            ]}
+        ]);
+        assert_eq!(
+            select_asset(&releases, "macos-arm64"),
+            Some(("pibrowse-core-0.5.5-macos-arm64.tar.xz".into(), "https://example.test/published".into()))
+        );
+    }
+
+    #[test]
+    fn newest_release_order_is_preserved_when_an_older_release_has_a_new_name() {
+        let releases = json!([
+            {"draft": false, "assets": [{"name": "fury-core-0.5.6-linux-x64.tar.xz", "browser_download_url": "https://example.test/newest"}]},
+            {"draft": false, "assets": [{"name": "pibrowse-core-0.5.5-linux-x64.tar.xz", "browser_download_url": "https://example.test/older"}]}
+        ]);
+        assert_eq!(
+            select_asset(&releases, "linux-x64"),
+            Some(("fury-core-0.5.6-linux-x64.tar.xz".into(), "https://example.test/newest".into()))
+        );
+    }
+
+    #[test]
+    fn missing_urls_and_unusable_assets_do_not_become_downloads() {
+        let releases = json!([{"draft": false, "assets": [
+            {"name": "pibrowse-core-0.5.5-macos-arm64.tar.xz", "browser_download_url": ""},
+            {"name": "fury-core-0.5.5-macos-arm64.tar.xz.sha256", "browser_download_url": "https://example.test/checksum"},
+            {"name": "fury-core-../0.5.5-macos-arm64.tar.xz", "browser_download_url": "https://example.test/path"}
+        ]}]);
+        assert_eq!(select_asset(&releases, "macos-arm64"), None);
+        assert_eq!(select_asset(&json!({"message": "not a release list"}), "macos-arm64"), None);
+    }
 }

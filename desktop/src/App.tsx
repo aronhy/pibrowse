@@ -2,6 +2,7 @@
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { brandName } from "./brand";
 import { useI18n, type Key } from "./i18n";
 import { api, ApiError, type LocalProxy, type Me, type MirrorStatus, type Profile, type Project, type Shell, type UpdateProgress, type WarmProgress, type Farm } from "./api";
 import { Login } from "./components/Login";
@@ -452,7 +453,7 @@ export function App() {
   if (fatal) {
     return (
       <div className="splash">
-        <div>Fury</div>
+        <div>{brandName}</div>
         <p className="error" style={{ maxWidth: 460, marginTop: "var(--s-4)" }}>
           {fatal}
         </p>
@@ -463,7 +464,7 @@ export function App() {
     );
   }
 
-  if (!shell) return <div className="splash">Fury</div>;
+  if (!shell) return <div className="splash">{brandName}</div>;
 
   if (signingUp) {
     return (
@@ -1207,7 +1208,7 @@ export function App() {
               <button
                 className="ghost"
                 onClick={() =>
-                  void api.openUrl("https://github.com/furyteamtop/fury-antidetect-browser/blob/main/docs/14-team-server.md")
+                  void api.openUrl("https://github.com/aronhy/pibrowse/blob/main/docs/14-team-server.md")
                 }
               >
                 {t("app.serverUpdateSteps")}

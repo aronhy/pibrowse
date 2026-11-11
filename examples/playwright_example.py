@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright 2026 Bogdan Shapovalov and the Fury authors
-"""Drive a Fury profile with Playwright.
+"""Drive a PiBrowse profile with Playwright.
 
     pip install playwright          # no `playwright install` needed — see below
     FURY_API_PORT=35000 fury-agent serve

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright 2026 Bogdan Shapovalov and the Fury authors
-"""A twenty-line client for the Fury automation API.
+"""A twenty-line client for the PiBrowse automation API.
 
 Deliberately not a package, not on PyPI, and not clever: the API is six
 endpoints and one bearer token, and a dependency for that would be a worse deal

@@ -557,7 +557,7 @@ pub async fn totp_setup(mut db: Db) -> ApiResult<Json<serde_json::Value>> {
         period: 30,
         algorithm: fury_shared::totp::Algorithm::Sha1,
         label: Some(email.0.clone()),
-        issuer: Some("Fury".into()),
+        issuer: Some("PiBrowse".into()),
     };
     Ok(Json(json!({ "uri": totp.to_uri(), "secret": base32(&secret) })))
 }

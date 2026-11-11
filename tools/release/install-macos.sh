@@ -30,9 +30,16 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-built="$here/target/release/bundle/macos/Fury.app"
-dest="/Applications/Fury.app"
+built="$here/target/release/bundle/macos/PiBrowse.app"
+dest="/Applications/PiBrowse.app"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+
+# Earlier builds used these names; install them under the current product name.
+if [ ! -d "$built" ]; then
+  for candidate in "$here/target/release/bundle/macos/pibrowse.app" "$here/target/release/bundle/macos/Fury.app"; do
+    if [ -d "$candidate" ]; then built="$candidate"; break; fi
+  done
+fi
 
 [ -d "$built" ] || { echo "!! no build at $built -- run: cd desktop && npm run app:build" >&2; exit 1; }
 
@@ -50,12 +57,13 @@ for v in /Volumes/dmg.*; do
 done
 rm -f "$here/target/release/bundle/macos"/rw.*.dmg
 
-echo "== closing Fury if it is running"
-osascript -e 'quit app "Fury"' 2>/dev/null || true
+echo "== closing PiBrowse if it is running"
+osascript -e 'if application id "dev.pibrowse.desktop" is running then tell application id "dev.pibrowse.desktop" to quit' 2>/dev/null || true
+osascript -e 'if application id "dev.fury.desktop" is running then tell application id "dev.fury.desktop" to quit' 2>/dev/null || true
 sleep 2
 # The agent outlives the window on purpose, and holds the socket the next one
 # wants. Same reason the Windows installer has a hook for this.
-pkill -f 'Fury.app/Contents/MacOS/fury-' 2>/dev/null || true
+pkill -f '(PiBrowse|pibrowse|Fury)\.app/Contents/MacOS/fury-' 2>/dev/null || true
 sleep 1
 
 echo "== installing"
@@ -86,21 +94,40 @@ if codesign -v --deep --strict "$dest" 2>/dev/null; then
 else
   echo "   no valid signature to keep — signing ad-hoc so it opens here"
   codesign --force --deep --sign - "$dest" >/dev/null 2>&1
-  codesign -v --deep --strict "$dest" 2>&1 && echo "   ad-hoc signature valid"
+  if ! codesign -v --deep --strict "$dest" 2>&1; then
+    echo "!! the new copy failed signature verification; keeping earlier installations" >&2
+    exit 1
+  fi
+  echo "   ad-hoc signature valid"
 fi
 
-echo "== leaving one Fury"
+# Move an earlier name out of Applications only after the new copy is valid.
+# Keep a recoverable copy and verify the identifier so an unrelated app is safe.
+for legacy in /Applications/Fury.app /Applications/pibrowse.app; do
+  [ -d "$legacy" ] || continue
+  [ "$legacy" -ef "$dest" ] && continue
+  legacy_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$legacy/Contents/Info.plist" 2>/dev/null || true)
+  [ "$legacy_id" = "dev.fury.desktop" ] || continue
+  backup_root="$HOME/Library/Application Support/Fury/legacy-apps.noindex"
+  mkdir -p "$backup_root"
+  backup=$(mktemp -d "$backup_root/$(basename "$legacy" .app).XXXXXX")
+  mv "$legacy" "$backup/application.bundle"
+  "$LSREGISTER" -u "$legacy" 2>/dev/null || true
+  echo "   earlier installation saved under $backup"
+done
+
+echo "== leaving one PiBrowse"
 rm -rf "$built"
 "$LSREGISTER" -u "$built" 2>/dev/null || true
 # Stale scratch volumes from bundle_dmg.sh, and any real one left mounted.
-"$LSREGISTER" -dump 2>/dev/null | awk '/path: *\/Volumes\/.*Fury\.app/ { print $2 }' | sort -u |
+"$LSREGISTER" -dump 2>/dev/null | awk '/path: *\/Volumes\/.*(PiBrowse|pibrowse|Fury)\.app/ { print $2 }' | sort -u |
   while read -r v; do "$LSREGISTER" -u "$v" 2>/dev/null || true; done
-for v in /Volumes/Fury /Volumes/dmg.*; do
+for v in /Volumes/PiBrowse /Volumes/pibrowse /Volumes/Fury /Volumes/dmg.*; do
   [ -e "$v" ] || "$LSREGISTER" -u "$v" 2>/dev/null || true
 done
 
 echo "== what the system knows about now"
-"$LSREGISTER" -dump 2>/dev/null | grep -i "path:.*Fury" | grep -v Helper | grep -v furycrm | sort -u | sed 's/^/   /'
+"$LSREGISTER" -dump 2>/dev/null | grep -Ei "path:.*(PiBrowse|Fury)" | grep -v Helper | grep -v furycrm | sort -u | sed 's/^/   /'
 
 open -a "$dest"
 echo

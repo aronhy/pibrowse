@@ -32,12 +32,12 @@ usage() {
   cat <<'EOF'
 usage: package.sh [--core PATH] [--shell PATH] [--version V] [--out DIR]
 
-  --core PATH     A signed Fury.app for the browser core. Produce one with
+  --core PATH     A signed PiBrowse.app for the browser core. Produce one with
                   tools/release/sign-core.sh.
   --shell PATH    The desktop application, from `npm run app:build`. Prefer the
                   installer that build produced — target/release/bundle/dmg/*.dmg
                   on macOS, bundle/nsis/*-setup.exe on Windows — which is copied
-                  through as-is. A Fury.app directory is also accepted and gets
+                  through as-is. A PiBrowse.app directory is also accepted and gets
                   tarred, which is what you have if you built `app` only.
   --version V     Release version. Default: the agent crate's version.
   --out DIR       Where to write (default dist/).
@@ -109,8 +109,13 @@ package_core() {
   # on launch, because verifying a signature and loading one are different
   # questions. Shipping that produces a first-run crash for every downloader.
   echo "== checking the core starts"
-  local said
-  if ! said=$("$app/Contents/MacOS/Fury" --version 2>&1); then
+  local said core_binary="$app/Contents/MacOS/PiBrowse"
+  if [ ! -x "$core_binary" ]; then
+    for candidate in "$app/Contents/MacOS/Fury" "$app/Contents/MacOS/pibrowse"; do
+      if [ -x "$candidate" ]; then core_binary="$candidate"; break; fi
+    done
+  fi
+  if ! said=$("$core_binary" --version 2>&1); then
     echo "!! it does not:" >&2
     echo "$said" | head -3 >&2
     exit 1
@@ -203,7 +208,7 @@ verify_shell_app() {
     if [ "${allow_unsigned:-0}" = "1" ]; then
       echo "   WARNING: ad-hoc signature, --allow-unsigned given"
       echo "   Anyone who downloads this must run:"
-      echo "     xattr -dr com.apple.quarantine /Applications/Fury.app"
+      echo "     xattr -dr com.apple.quarantine /Applications/PiBrowse.app"
     else
       echo "!! this bundle is ad-hoc signed, which is not distributable: a" >&2
       echo "!! downloaded copy is quarantined and Gatekeeper refuses it." >&2
@@ -234,8 +239,13 @@ package_shell() {
       # Detach even if a check exits — an image left mounted registers its copy
       # of Fury.app with LaunchServices, and then the machine has two.
       trap 'hdiutil detach "$mnt" -quiet 2>/dev/null || true; rmdir "$mnt" 2>/dev/null || true' RETURN
-      local inner="$mnt/Fury.app"
-      [ -d "$inner" ] || { echo "!! no Fury.app inside $app" >&2; exit 1; }
+      local inner="$mnt/PiBrowse.app"
+      if [ ! -d "$inner" ]; then
+        for candidate in "$mnt/pibrowse.app" "$mnt/Fury.app"; do
+          if [ -d "$candidate" ]; then inner="$candidate"; break; fi
+        done
+      fi
+      [ -d "$inner" ] || { echo "!! no PiBrowse.app (or legacy bundle) inside $app" >&2; exit 1; }
       verify_shell_app "$inner"
     fi
 
@@ -249,7 +259,7 @@ package_shell() {
     tar -cJf "$out/$name" -C "$(dirname "$app")" "$(basename "$app")"
   else
     echo "!! no such bundle: $app" >&2
-    echo "   expected a .dmg or .exe from \`tauri build\`, or a Fury.app directory" >&2
+    echo "   expected a .dmg or .exe from \`tauri build\`, or a PiBrowse.app directory" >&2
     exit 1
   fi
 
@@ -335,8 +345,9 @@ CAPTURE="${FURY_CAPTURE:-tools/detect-suite/baselines/ctx-fury-redacted.json}"
 # missing is worse than no claim.
 CORE_BINARY="${CORE_BINARY:-}"
 if [ -z "$CORE_BINARY" ] && [ -n "$core_app" ]; then
-  CORE_BINARY="$core_app/Contents/MacOS/Fury"
-  [ -x "$CORE_BINARY" ] || CORE_BINARY=""
+  for candidate in "$core_app/Contents/MacOS/PiBrowse" "$core_app/Contents/MacOS/Fury" "$core_app/Contents/MacOS/pibrowse"; do
+    if [ -x "$candidate" ]; then CORE_BINARY="$candidate"; break; fi
+  done
 fi
 
 if [ -f "$CAPTURE" ]; then

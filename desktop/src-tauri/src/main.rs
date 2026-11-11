@@ -249,7 +249,7 @@ fn main() {
             commands::create_project,
         ])
         .build(tauri::generate_context!())
-        .expect("error while running Fury")
+        .expect("error while running PiBrowse")
         .run(|_app, event| {
             // The agent this shell started outlives it on purpose: open
             // profiles keep their locks and relays. With nothing open it had

@@ -1,0 +1,32 @@
+diff --git a/components/webui/version/resources/about_version.html b/components/webui/version/resources/about_version.html
+--- a/components/webui/version/resources/about_version.html
++++ b/components/webui/version/resources/about_version.html
+@@ -38,14 +38,14 @@
+           <source srcset="chrome://theme/IDR_PRODUCT_LOGO,
+                           chrome://theme/IDR_PRODUCT_LOGO@2x 2x"
+                   media="(prefers-color-scheme: light), (prefers-color-scheme: no-preference)">
+-          <img alt="$i18n{logo_alt_text}" src="chrome://theme/IDR_PRODUCT_LOGO">
++          <img alt="$i18n{application_label}" src="chrome://theme/IDR_PRODUCT_LOGO">
+         </picture>
+ </if>
+ <if expr="is_ios or is_android">
+         <picture>
+           <source srcset="images/product_logo_white.png" media="(prefers-color-scheme: dark)">
+           <source srcset="images/product_logo.png" media="(prefers-color-scheme: light), (prefers-color-scheme: no-preference)">
+-          <img alt="$i18n{logo_alt_text}" src="images/product_logo.png">
++          <img alt="$i18n{application_label}" src="images/product_logo.png">
+         </picture>
+ </if>
+         <div id="company">$i18n{company}</div>
+diff --git a/chrome/browser/resources/settings/about_page/about_page.html.ts b/chrome/browser/resources/settings/about_page/about_page.html.ts
+--- a/chrome/browser/resources/settings/about_page/about_page.html.ts
++++ b/chrome/browser/resources/settings/about_page/about_page.html.ts
+@@ -16,7 +16,7 @@
+     <img id="productLogo" @click="${this.onProductLogoClick_}"
+         srcset="chrome://theme/current-channel-logo@1x 1x,
+                 chrome://theme/current-channel-logo@2x 2x"
+-        alt="$i18n{aboutProductLogoAlt}"
++        alt="$i18n{aboutProductTitle}"
+         role="presentation">
+     <div class="product-title">$i18n{aboutProductTitle}</div>
+   </div>

@@ -33,7 +33,7 @@ cargo run -q -p fury-detect -- redact "$capture" "$tmp" >/dev/null 2>&1 || cp "$
 
 persona="$(mktemp -t persona).json"
 if ! cargo run -q -p fury-detect -- persona "$tmp" --weight "$weight" > "$persona"; then
-  echo "!! the converter refused this dump — usually it came from Fury or another modified browser rather than ordinary Chrome" >&2
+  echo "!! the converter refused this dump — usually it came from PiBrowse or another modified browser rather than ordinary Chrome" >&2
   exit 1
 fi
 

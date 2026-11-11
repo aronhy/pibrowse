@@ -20,7 +20,7 @@ version = "0.5.4"
 edition = "2021"
 rust-version = "1.80"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/furyteamtop/fury-antidetect-browser"
+repository = "https://github.com/aronhy/pibrowse"
 
 [workspace.dependencies]
 anyhow = "1"

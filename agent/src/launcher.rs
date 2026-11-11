@@ -98,10 +98,8 @@ pub struct LaunchSpec<'a> {
     /// announcing German and formatting numbers in English.
     pub ui_locale: &'a str,
 
-    /// (profile id, profile name): on macOS the core runs from a copy named
-    /// after the profile, so the Dock says which account it is (dock.rs).
-    /// None runs the core as it is, and the Dock says Fury.
-    pub dock_name: Option<(&'a str, &'a str)>,
+    /// The profile's Dock title and number on macOS (dock.rs).
+    pub dock_name: Option<crate::dock::Identity<'a>>,
 }
 
 /// Build the argument vector for the core.
@@ -357,11 +355,11 @@ pub fn spawn(spec: &LaunchSpec) -> Result<std::process::Child, LaunchError> {
 
     // After the CDM: both are best effort, and neither may stop a launch.
     #[cfg(target_os = "macos")]
-    let named = spec.dock_name.and_then(|(id, name)| {
-        match crate::dock::named_core(spec.core_binary, id, name) {
+    let named = spec.dock_name.as_ref().and_then(|profile| {
+        match crate::dock::named_core(spec.core_binary, profile) {
             Ok(exe) => Some(exe),
             Err(e) => {
-                tracing::warn!(error = %e, "running the core under its own name; the Dock will say Fury");
+                tracing::warn!(error = %e, "running the core under its own name; the Dock will show the core name");
                 None
             }
         }
@@ -372,6 +370,10 @@ pub fn spawn(spec: &LaunchSpec) -> Result<std::process::Child, LaunchError> {
 
     let mut cmd = std::process::Command::new(core_binary);
     cmd.args(build_args(spec)).stdin(Stdio::null());
+    #[cfg(target_os = "macos")]
+    if let Some(number) = spec.dock_name.as_ref().and_then(|profile| profile.number) {
+        cmd.arg(format!("--pibrowse-dock-number={number}"));
+    }
 
     // The config arrives as an inherited open file — fd 3 on macOS, a HANDLE on
     // Windows — which the core reads to EOF (components/fury/fury_config.cc).

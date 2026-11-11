@@ -156,10 +156,10 @@ pub async fn import_project(
     let version = match raw.get(..MAGIC.len()) {
         Some(m) if m == MAGIC => Version::V2,
         Some(m) if m == MAGIC_V1 => Version::V1,
-        _ => anyhow::bail!("this is not a Fury export file"),
+        _ => anyhow::bail!("this is not a PiBrowse export file"),
     };
     if raw.len() < MAGIC.len() + SALT_LEN + NONCE_LEN {
-        anyhow::bail!("this is not a Fury export file");
+        anyhow::bail!("this is not a PiBrowse export file");
     }
 
     let salt = &raw[MAGIC.len()..MAGIC.len() + SALT_LEN];
@@ -504,6 +504,6 @@ mod tests {
             .await
             .unwrap_err();
         // Not "wrong passphrase" — that is the error people spend an hour on.
-        assert!(err.to_string().contains("not a Fury export"), "{err}");
+        assert!(err.to_string().contains("not a PiBrowse export"), "{err}");
     }
 }

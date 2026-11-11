@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-//! The profile's name under its icon in the macOS Dock.
+//! The profile's name and number in the macOS Dock.
+//!
+//! The core draws its numbered icon at runtime. The cloned app stays signed.
 //!
 //! Every profile is the same signed core, so every one of them said "Fury"
 //! in the Dock, and with five open the only way to find an account was to
@@ -35,6 +37,25 @@
 
 use std::path::{Path, PathBuf};
 
+pub struct Identity<'a> {
+    pub id: &'a str,
+    pub name: &'a str,
+    pub number: Option<i64>,
+}
+
+#[cfg(target_os = "macos")]
+impl Identity<'_> {
+    fn title(&self, core: &Path) -> String {
+        let Some(number) = self.number else {
+            return self.name.to_string();
+        };
+        let kernel = crate::core_version(core)
+            .and_then(|version| version.split('.').next()?.parse::<u32>().ok())
+            .map_or_else(|| "Chromium".into(), |major| format!("Chromium {major}"));
+        format!("{number:02} · {kernel} · {}", self.name)
+    }
+}
+
 /// The name as the Dock will show it, or None to leave it "Fury".
 ///
 /// A directory name, so the two characters a macOS path cannot hold in a
@@ -57,8 +78,13 @@ pub fn display_name(name: &str) -> Option<String> {
 /// `core_binary` is `<X>.app/Contents/MacOS/<exe>`; the copy is
 /// `dock.noindex/<profile id>/<name>.app` with the same path inside.
 #[cfg(target_os = "macos")]
-pub fn named_core(core_binary: &Path, profile_id: &str, name: &str) -> std::io::Result<PathBuf> {
-    named_core_in(&crate::paths::dock_dir(), core_binary, profile_id, name)
+pub fn named_core(core_binary: &Path, profile: &Identity<'_>) -> std::io::Result<PathBuf> {
+    named_core_in(
+        &crate::paths::dock_dir(),
+        core_binary,
+        profile.id,
+        &profile.title(core_binary),
+    )
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]

@@ -236,7 +236,7 @@ pub async fn assistants_connect(client: String) -> Result<State, ApiErr> {
         (_, Some("not_installed")) => {
             return Err(ApiErr::coded(
                 "err.aiNotInstalled",
-                "Fury is running from the disk image or Downloads. Move it to Applications, open it from there, and connect again.",
+                "PiBrowse is running from the disk image or Downloads. Move it to Applications, open it from there, and connect again.",
             ))
         }
         _ => return Err(ApiErr::local("the fury-agent binary was not found beside the application")),

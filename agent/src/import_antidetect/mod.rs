@@ -302,7 +302,7 @@ pub(crate) fn proxy_line(
         return (None, Some("the proxy has no address in the source".into()));
     }
     if !matches!(kind.as_str(), "http" | "https" | "socks5" | "socks4") {
-        return (None, Some(format!("a {kind} proxy is not one Fury can use")));
+        return (None, Some(format!("a {kind} proxy is not one PiBrowse can use")));
     }
     if user.contains(':') {
         return (None, Some("the proxy username contains a colon".into()));

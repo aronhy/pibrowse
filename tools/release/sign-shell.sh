@@ -35,7 +35,7 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-app="$here/target/release/bundle/macos/Fury.app"
+app="$here/target/release/bundle/macos/PiBrowse.app"
 identity="${APPLE_SIGNING_IDENTITY:-}"
 notarize=0
 build=1
@@ -63,7 +63,7 @@ usage: sign-shell.sh [--identity NAME] [--notarize] [--dmg] [--skip-build]
                    notarytool profile (see sign-core.sh --help for how).
   --dmg            After the bundle: make the disk image from it, sign the
                    image, and (with --notarize) notarise and staple that too.
-                   Lands in target/release/bundle/dmg/Fury_<version>_aarch64.dmg,
+                   Lands in target/release/bundle/dmg/PiBrowse_<version>_aarch64.dmg,
                    which is what package.sh --shell takes.
   --skip-build     Verify and notarise the bundle that is already there.
                    Use it to re-check, never to produce a release: the
@@ -130,6 +130,12 @@ if [ "$build" = 1 ]; then
   (cd "$here/desktop" && npx tauri build --bundles app)
 fi
 
+# Accept older shell bundles when re-checking an existing build.
+if [ ! -d "$app" ]; then
+  for candidate in "$here/target/release/bundle/macos/pibrowse.app" "$here/target/release/bundle/macos/Fury.app"; do
+    if [ -d "$candidate" ]; then app="$candidate"; break; fi
+  done
+fi
 [ -d "$app" ] || { echo "!! no $app — build the shell first" >&2; exit 1; }
 
 echo
@@ -199,7 +205,7 @@ if [ "$notarize" = 1 ]; then
   # notarytool does not take a bare .app. ditto is what Apple documents for
   # this; `zip -r` mangles symlinks and extended attributes inside a bundle,
   # and the resulting submission fails in a way that reads as a signing fault.
-  zip="$here/target/release/bundle/macos/Fury.zip"
+  zip="$here/target/release/bundle/macos/PiBrowse.zip"
   rm -f "$zip"
   ditto -c -k --keepParent "$app" "$zip"
 
@@ -234,13 +240,13 @@ if [ "$dmg" = 1 ]; then
   # have produced, so package.sh finds it where it always looked.
   version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
   case "$(uname -m)" in arm64) dmg_arch="aarch64" ;; *) dmg_arch="$(uname -m)" ;; esac
-  dmg_path="$here/target/release/bundle/dmg/Fury_${version}_${dmg_arch}.dmg"
+  dmg_path="$here/target/release/bundle/dmg/PiBrowse_${version}_${dmg_arch}.dmg"
   stage="$(mktemp -d)"
-  ditto "$app" "$stage/Fury.app"
+  ditto "$app" "$stage/PiBrowse.app"
   ln -s /Applications "$stage/Applications"
   mkdir -p "$(dirname "$dmg_path")"
   rm -f "$dmg_path"
-  hdiutil create -volname Fury -srcfolder "$stage" -ov -format UDZO "$dmg_path" >/dev/null
+  hdiutil create -volname PiBrowse -srcfolder "$stage" -ov -format UDZO "$dmg_path" >/dev/null
   rm -rf "$stage"
   codesign --force --sign "$identity" --timestamp "$dmg_path"
   if [ "$notarize" = 1 ]; then

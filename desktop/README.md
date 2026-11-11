@@ -1,5 +1,7 @@
 # desktop — нативная оболочка (Tauri 2 + React)
 
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names, storage paths and core filenames retain their existing names for compatibility; the product is PiBrowse.
+
 Окно, соединение с сервером и сессия. Всё, что касается профилей, будет делать
 агент ([docs/01](../docs/01-architecture.md)); здесь только то, чего не может
 веб-страница.
@@ -17,7 +19,7 @@ npm run app:build   # .app (macOS), установщик NSIS (Windows)
 пользовался, — и не бесплатным. Каждая сборка dmg монтирует том, чтобы
 разложить окно, и размонтирует, а macOS регистрирует лежащее внутри приложение
 и не забывает. На машине разработчика накопилось 39 мёртвых
-`/Volumes/dmg.*/Fury.app`, и каждый из них система предлагала как запускаемый.
+`/Volumes/dmg.*/PiBrowse.app`, и каждый из них система предлагала как запускаемый.
 Причина и решение — в `desktop/src-tauri/build.rs`, а не здесь: `tauri.conf.json`
 проверяется схемой, которая отвергает любой незнакомый ключ, включая
 комментарий.

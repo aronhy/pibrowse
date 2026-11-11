@@ -199,7 +199,7 @@ if [ -f /etc/fury/fury.env ]; then
     add_setting FURY_MAX_STORAGE_PER_ORG "" "Bundle bytes per organisation. Empty means no limit."
     add_setting FURY_KEEP_BUNDLE_VERSIONS "10" "Bundle versions kept per profile. 0 keeps everything."
     add_setting FURY_SMTP_URL "" "Mail for confirming invited addresses, e.g. smtps://user:pass@smtp.example.com:465. Empty: invitation codes are not confirmed by email."
-    add_setting FURY_MAIL_FROM "" "Sender of those letters, e.g. Fury <noreply@example.com>. Needed when FURY_SMTP_URL is set."
+    add_setting FURY_MAIL_FROM "" "Sender of those letters, e.g. PiBrowse <noreply@example.com>. Needed when FURY_SMTP_URL is set."
 else
 cat > /etc/fury/fury.env <<ENV
 DATABASE_URL=postgres://fury:${DB_PASS}@127.0.0.1:5432/fury
@@ -269,7 +269,7 @@ FURY_KEEP_BUNDLE_VERSIONS=10
 #
 #   FURY_SMTP_URL=smtps://user:password@smtp.example.com:465
 #   FURY_SMTP_URL=smtp://user:password@smtp.example.com:587?tls=required
-#   FURY_MAIL_FROM=Fury <noreply@example.com>
+#   FURY_MAIL_FROM=PiBrowse <noreply@example.com>
 #
 FURY_SMTP_URL=
 FURY_MAIL_FROM=
@@ -279,7 +279,7 @@ chmod 0640 /etc/fury/fury.env; chown root:fury /etc/fury/fury.env
 
 cat > /etc/systemd/system/fury-server.service <<'UNIT'
 [Unit]
-Description=Fury server
+Description=PiBrowse server
 After=network-online.target postgresql.service
 Wants=network-online.target
 Requires=postgresql.service

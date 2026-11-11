@@ -229,7 +229,7 @@ pub fn machine_name() -> String {
 pub fn normalise_server_url(input: &str) -> Result<String, String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return Err("Enter the address of your Fury server.".into());
+        return Err("Enter the address of your PiBrowse server.".into());
     }
 
     // Split the scheme off *before* touching trailing slashes. Stripping them

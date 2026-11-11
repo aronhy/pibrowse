@@ -88,7 +88,7 @@ net/socket/ssl_client_socket_impl.cc:207   SSL_CTX_set_grease_enabled(ctx_, 1);
 `core/patches/series`.
 
 Чего записывать нельзя — что это паритет. Это не паритет: настоящий Chrome 150 поднимает
-HTTP/3 с любым сервером, который его предлагает, а Fury — никогда. Отклонение реальное и
+HTTP/3 с любым сервером, который его предлагает, а PiBrowse — никогда. Отклонение реальное и
 незакрытое, и со стороны сервера его видит **любой**, кто анонсирует `Alt-Svc` и смотрит,
 апгрейдится ли клиент, а не только Google.
 
@@ -493,7 +493,7 @@ iframe (`same-origin`, `about:blank`, `srcdoc`), `crossContext.disagreementCount
   ВЫКЛЮЧЕНО: ключ `automation.hideTraces`, ненастроенная сборка остаётся честной. Смысл в
   том, что без него оператор выбирает между «автоматизировать аккаунт» и «сохранить его».
 - `cdc_`-переменные ChromeDriver и `document.$cdc_asdjflasutopfhvcZLmcfl_` — **убирать нечего**.
-  Их ставит ChromeDriver, а Fury его не использует. Измерено: `engine.automation.cdcVars` и
+  Их ставит ChromeDriver, а PiBrowse его не использует. Измерено: `engine.automation.cdcVars` и
   `documentCdc` пусты и у нас, и у чистого Chromium 150, и у настоящего Chrome 150
   (`tools/detect-suite/baselines/*-redacted.json`). Проба снимает их как контроль.
 - `--enable-automation` лончер не передаёт (`agent/src/launcher.rs`), поэтому ни поведения,

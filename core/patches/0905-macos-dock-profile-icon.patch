@@ -1,0 +1,77 @@
+diff --git a/chrome/browser/app_controller_mac.mm b/chrome/browser/app_controller_mac.mm
+index 7a4560a..b9ebb5e 100644
+--- a/chrome/browser/app_controller_mac.mm
++++ b/chrome/browser/app_controller_mac.mm
+@@ -156,6 +156,63 @@
+
+ namespace {
+
++// Draw the profile number on the engine's original icon without modifying
++// any resources in the signed application bundle.
++void DrawPibrowseDockNumber(NSString* serial) {
++  const CGFloat font_size = std::min<CGFloat>(105, 325.0 / serial.length);
++  NSDictionary* attributes = @{
++    NSFontAttributeName :
++        [NSFont monospacedDigitSystemFontOfSize:font_size
++                                        weight:NSFontWeightBold],
++    NSForegroundColorAttributeName : NSColor.whiteColor
++  };
++  const NSSize text = [serial sizeWithAttributes:attributes];
++  const CGFloat height = 136;
++  const CGFloat width = std::max(height, text.width + 38);
++  const NSRect badge = NSMakeRect(474 - width, 38, width, height);
++  NSBezierPath* outline = [NSBezierPath bezierPathWithRoundedRect:badge
++                                                        xRadius:height / 2
++                                                        yRadius:height / 2];
++  [[NSColor colorWithSRGBRed:0.09 green:0.11 blue:0.15 alpha:1.0] setFill];
++  [outline fill];
++  [NSColor.whiteColor setStroke];
++  outline.lineWidth = 6;
++  [outline stroke];
++  [serial drawAtPoint:NSMakePoint(NSMidX(badge) - text.width / 2,
++                                 NSMidY(badge) - text.height / 2)
++       withAttributes:attributes];
++}
++
++void SetPibrowseDockIcon() {
++  int64_t number = 0;
++  if (!base::StringToInt64(
++          base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
++              "pibrowse-dock-number"),
++          &number) ||
++      number <= 0) {
++    return;
++  }
++
++  NSImage* base_icon = NSApp.applicationIconImage;
++  if (!base_icon) {
++    return;
++  }
++  NSString* serial =
++      [NSString stringWithFormat:@"%02lld", static_cast<long long>(number)];
++  NSImage* icon =
++      [NSImage imageWithSize:NSMakeSize(512, 512)
++                     flipped:NO
++              drawingHandler:^BOOL(NSRect frame) {
++                [base_icon drawInRect:frame
++                            fromRect:NSZeroRect
++                           operation:NSCompositingOperationSourceOver
++                            fraction:1.0];
++                DrawPibrowseDockNumber(serial);
++                return YES;
++              }];
++  NSApp.applicationIconImage = icon;
++}
++
+ // True while AppController is calling chrome::NewEmptyWindow(). We need a
+ // global flag here, analogue to StartupBrowserCreator::InProcessStartup()
+ // because otherwise the SessionService will try to restore sessions when we
+@@ -1345,6 +1402,8 @@ class AppControllerProfileObserver : public ProfileAttributesStorage::Observer,
+     return;
+   }
+
++  SetPibrowseDockIcon();
++
+   [self setUpdateCheckInterval];
+
+   // If enabled, keep Chrome alive when apps are open instead of quitting all

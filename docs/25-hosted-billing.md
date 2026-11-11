@@ -1,6 +1,6 @@
 # Hosted team subscriptions (Stripe Sandbox)
 
-Fury uses the Open SaaS Checkout, Customer Portal, and verified webhook flow
+PiBrowse uses the Open SaaS Checkout, Customer Portal, and verified webhook flow
 with the existing team account. The subscription belongs to the organization.
 The desktop opens Stripe in the system browser. After payment, open
 **Settings → Team server → Team subscription** and refresh.

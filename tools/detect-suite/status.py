@@ -179,9 +179,9 @@ def build():
         # A field missing from a context is not a disagreement, and the two are
         # worth keeping apart. navigator.userAgent does not exist inside an
         # AudioWorklet and navigator.webdriver does not exist in any worker —
-        # in Chrome either. What would be alarming is a field present in Fury
+        # in Chrome either. What would be alarming is a field present in PiBrowse
         # and absent in Chrome, or the reverse, so the two lists are compared
-        # rather than only Fury's being printed.
+        # rather than only PiBrowse's being printed.
         f_abs = dig(fury, "crossContext.absences") or []
         c_abs = dig(chrome, "crossContext.absences") if chrome else None
         note = ""
@@ -255,13 +255,13 @@ def build():
         chrome_label = f"Chrome {_m.group(1)}" if _m else "Chrome"
         parts.append(f"""
 <section>
-  <h2>Fury and Chrome, side by side</h2>
+  <h2>PiBrowse and Chrome, side by side</h2>
   <p class="note">Both captures were taken on the same machine. <em>differs</em> is
      the expected answer for a spoofed profile and <em>same</em> is the expected
      answer for everything the persona does not claim — the point is that each
      one is deliberate.</p>
   <table>
-    <thead><tr><th></th><th>Fury</th><th>{e(chrome_label)}</th><th></th></tr></thead>
+    <thead><tr><th></th><th>PiBrowse</th><th>{e(chrome_label)}</th><th></th></tr></thead>
     <tbody>{rows}</tbody>
   </table>
 </section>""")
@@ -294,7 +294,7 @@ def section_missing(what, why):
 
 HEAD = """<!doctype html>
 <meta charset="utf-8">
-<title>Fury — measured</title>
+<title>PiBrowse — measured</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root { color-scheme: light dark; --line: #8883; --ok: #1a7f37; --bad: #c1121f; }
@@ -325,7 +325,8 @@ HEAD = """<!doctype html>
            font-size: .85rem; opacity: .8; }
 </style>
 <body><main>
-<h1>Fury, measured</h1>
+<h1>PiBrowse, measured</h1>
+<p class="note">Existing results are inherited upstream baselines. Validate a PiBrowse build with a fresh capture before attributing these results to it.</p>
 <p class="sub">Every number on this page came from a browser that was running.
    None of them are claims.</p>"""
 

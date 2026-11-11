@@ -144,5 +144,5 @@ jobs:
             const log = fs.existsSync('convert.log') ? fs.readFileSync('convert.log', 'utf8').trim().slice(0, 3000) : '';
             const body = ok
               ? `Thank you. The machine is \`${process.env.ID}\`; a pull request with the persona is open under your name and will close this issue when merged.`
-              : `The capture could not be turned into a persona. What the converter said:\n\n\`\`\`\n${log || 'no output'}\n\`\`\`\n\nMost often this is a dump from Fury or another modified browser rather than ordinary Chrome, or a file that was not the probe's JSON. Edit the issue with a new file and the workflow runs again.`;
+              : `The capture could not be turned into a persona. What the converter said:\n\n\`\`\`\n${log || 'no output'}\n\`\`\`\n\nMost often this is a dump from PiBrowse or another modified browser rather than ordinary Chrome, or a file that was not the probe's JSON. Edit the issue with a new file and the workflow runs again.`;
             await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });

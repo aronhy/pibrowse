@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
+import { brandIcon, brandName } from "../brand";
 import { useI18n } from "../i18n";
 
 /** The name at the top of every screen before signing in, with the version
@@ -14,7 +15,7 @@ export function Brand({ version }: { version?: string }) {
   const { t } = useI18n();
   return (
     <>
-      <h1>PiBrowse</h1>
+      <h1 className="loginBrand"><img src={brandIcon} alt="" width="44" height="44" />{brandName}</h1>
       {version && <p className="loginVersion">{t("auth.version", { version })}</p>}
     </>
   );

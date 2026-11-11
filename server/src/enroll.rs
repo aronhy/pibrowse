@@ -5,7 +5,7 @@
 //!
 //! # Why there is no registration form
 //!
-//! A Fury server holds the working accounts of a team. Open registration on
+//! A PiBrowse server holds the working accounts of a team. Open registration on
 //! such a server is a door without a lock. So an account starts as an
 //! invitation issued by someone who already runs the box, or already runs the
 //! organisation.
@@ -198,7 +198,7 @@ pub async fn cli(args: &[String]) -> anyhow::Result<()> {
 
     println!("Invitation for {email} ({role}), valid {TTL_HOURS} hours:\n");
     println!("    {code}\n");
-    println!("Enter it in Fury under \"I have an invitation\", together with this");
+    println!("Enter it in PiBrowse under \"I have an invitation\", together with this");
     println!("server's address. The code is shown once — it is not stored.");
     Ok(())
 }

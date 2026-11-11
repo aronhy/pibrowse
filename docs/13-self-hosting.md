@@ -1,5 +1,9 @@
 # 13 — Свой сервер
 
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names, storage paths and core filenames retain their existing names for compatibility; the product is PiBrowse.
+
+> PiBrowse source and releases: [aronhy/pibrowse](https://github.com/aronhy/pibrowse). Existing `fury-server-*` downloads and `ghcr.io/furyteamtop/fury-server` examples below are upstream compatibility resources; build this fork from source to deploy PiBrowse.
+
 Сервер нужен **только для командной работы**. Одному человеку он не нужен вовсе:
 локальный режим полон сам по себе ([01](01-architecture.md)).
 
@@ -55,7 +59,7 @@ S3-совместимое хранилище не нужно и не испол�
 ## Быстрый путь: docker compose
 
 ```bash
-git clone https://github.com/furyteamtop/fury-antidetect-browser && cd fury-antidetect-browser
+git clone https://github.com/aronhy/pibrowse && cd pibrowse
 cp .env.example .env          # задайте FURY_DB_PASSWORD
 docker compose up -d
 ```
@@ -77,7 +81,7 @@ curl -s http://127.0.0.1:8901/v1/me
 ```
 
 Ответ должен быть ровно `{"error":"unauthenticated"}` с кодом 401 — приложение
-использует это как признак «здесь Fury».
+использует это как признак «здесь PiBrowse».
 
 Дальше — [первый пользователь](#первый-пользователь-если-регистрация-закрыта):
 на пустом сервере некому вас пригласить, и первый код печатает сам сервер. В
@@ -120,7 +124,7 @@ curl -s http://127.0.0.1:8901/v1/me
 ```
 
 Ответ должен быть ровно `{"error":"unauthenticated"}` с кодом 401. Приложение
-использует это как признак «здесь Fury» — если ответ другой, оно откажется
+использует это как признак «здесь PiBrowse» — если ответ другой, оно откажется
 подключаться, и это правильно: адрес с опечаткой иначе всплыл бы позже, при входе,
 и выглядел бы как неверный пароль.
 
@@ -267,7 +271,7 @@ sudo -u postgres psql -c "DELETE FROM users WHERE email = 'кого@убирае
 ```bash
 FURY_SMTP_URL=smtps://user:password@smtp.example.com:465
 # или: smtp://user:password@smtp.example.com:587?tls=required
-FURY_MAIL_FROM=Fury <noreply@example.com>
+FURY_MAIL_FROM=PiBrowse <noreply@example.com>
 ```
 
 Перезапустите сервер и проверьте лог: `mail: on` значит, что SMTP ответил и

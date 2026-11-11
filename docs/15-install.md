@@ -1,32 +1,51 @@
-# Installing Fury
+# Installing PiBrowse
 
-> **There are releases; macOS ones are signed, Windows ones are not.** The
-> [Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases)
-> page has had builds since 18.08.2026; the current one is 0.5.3 for Windows x64
-> and macOS on Apple Silicon. Each ships with
-> `SHA256SUMS` and a `REPORT.md` — the measurement the core passed before it was
-> published. Since 21.09.2026 the macOS application, core and disk image are
-> signed with a Developer ID and notarised, so they open like any other
-> download. The Windows installer is not signed and shows a SmartScreen
-> warning, covered below. To build instead, the application and the agent take minutes
-> (`cargo build --release`) and the core about three hours
-> ([docs/03](03-chromium-fork.md)).
->
-> This page was written before the first release existed, because the
-> instructions are the specification — what a release has to produce is exactly
-> what this page promises. It now describes what the releases do.
+## PiBrowse 0.5.5 preview — Apple Silicon Mac
+
+Download [v0.5.5](https://github.com/aronhy/pibrowse/releases/tag/v0.5.5):
+
+1. Open `pibrowse-0.5.5-macos-arm64.dmg` and move **PiBrowse.app** to Applications.
+2. Open PiBrowse and choose **Download the browser**. This user-triggered download
+   now uses this repository’s `pibrowse-core-0.5.5-macos-arm64.tar.xz`, containing
+   the rebuilt PiBrowse Chromium **157.0.8103.39** engine.
+3. Verify downloaded files against the release’s `SHA256SUMS.txt` if installing by hand.
+
+The desktop is ad-hoc signed; the core keeps its native linker ad-hoc signature.
+Neither has Apple Developer ID signing or notarization. These are preview builds,
+and this release does not claim Gatekeeper acceptance. Application updates are
+manual; no automatic update signing key is configured. No Windows or Intel Mac
+binary is supplied in this release.
+
+For manual core import, use the agent included in the installed application:
+
+```sh
+/Applications/PiBrowse.app/Contents/MacOS/fury-agent install-core \
+  ~/Downloads/pibrowse-core-0.5.5-macos-arm64.tar.xz
+```
+
+Existing agent data remains in `~/Library/Application Support/Fury`. The desktop
+keeps the `dev.pibrowse.desktop` application identifier introduced in 0.5.4;
+`dev.fury.core`, `FURY_*` settings, command names and prior core leaf names remain
+compatible. The native Dock uses the original Chromium icon with stable profile
+numbers; internal product labels and marks use PiBrowse.
+
+---
+
+
+> PiBrowse downloads: [Releases](https://github.com/aronhy/pibrowse/releases). Use the actual filename and signing status listed there; the older version/signing history below describes upstream Fury releases. Older browser-core archives named `fury-core-*` remain upstream compatibility resources from [upstream Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases).
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names and storage paths retain their existing names. Legacy core filenames remain supported; a new macOS core uses `PiBrowse.app/Contents/MacOS/PiBrowse`.
 
 For a person who has not built anything. If you want to build from source, that
 is [docs/03](03-chromium-fork.md) and the README; this page assumes you have a
 computer and a browser and nothing else.
 
-Fury is **two downloads**, and that is worth understanding before you start,
+PiBrowse is **two downloads**, and that is worth understanding before you start,
 because otherwise the second one looks like a mistake:
 
 | | what it is | size |
 |---|---|---|
-| **Fury** | the application: profiles, proxies, personas, teams | ~12 MB |
-| **Fury core** | the browser itself — a Chromium fork | 103 MB on macOS, 146 MB on Windows |
+| **PiBrowse** | the application: profiles, proxies, personas, teams | ~12 MB |
+| **PiBrowse core** | the browser itself — a Chromium fork | 103 MB on macOS, 146 MB on Windows |
 
 They are apart because they move apart. The application changes weekly; the core
 changes when Chromium does, every six weeks or so. Bundling them would mean a
@@ -39,59 +58,63 @@ corrupt download rather than at us.
 
 ### 1. The application
 
-Download `fury-<version>-macos-<arch>.dmg` from
-[Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases). `arch` is `arm64` for
+Download the macOS `.dmg` listed on
+[Releases](https://github.com/aronhy/pibrowse/releases). `arch` is `arm64` for
 any Apple-silicon Mac (M1 and later) — if you are not sure,  → About This Mac
 says which. Intel Macs have no release build yet: the name would be `x86_64`,
 and until one is published the way in on an Intel machine is to build it.
 
-Open it and drag **Fury.app** into `/Applications`, the way every other Mac
+Open it and drag **PiBrowse.app** into `/Applications`, the way every other Mac
 application is installed.
 
 ### 2. The browser core
 
-Open Fury. It says the browser itself is not installed yet and offers
+Open PiBrowse. It says the browser itself is not installed yet and offers
 **Download the browser** — press it. That fetches the core for this machine
 from the Releases page, about 100 MB, once, and installs it. Nothing runs on a
 timer or at startup: the request is made when you press the button and not
 otherwise, which is the difference between this and the automatic updates the
 project refuses to have (the reasons are at the bottom of this page).
 
-Or by hand: download `fury-core-<version>-macos-<arch>.tar.xz` from the same
-page, then in Terminal:
+Or by hand: download `fury-core-<version>-macos-<arch>.tar.xz` from
+[upstream Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases), then in Terminal:
 
 ```bash
-/Applications/Fury.app/Contents/MacOS/fury-agent install-core ~/Downloads/fury-core-*.tar.xz
+/Applications/PiBrowse.app/Contents/MacOS/fury-agent install-core ~/Downloads/fury-core-*.tar.xz
 ```
 
 The button runs exactly this. It does three things by hand that are easy to get
 wrong: it unpacks the bundle preserving the symlinks a macOS framework is built
 from, it removes the quarantine flag your browser attached to the download, and
 — the step that matters — it **runs the browser once and checks it starts**.
-If it prints a version, it is installed:
+Example output from a compatible legacy upstream core:
 
 ```
 installed Fury 157.0.8103.39
   /Users/you/Library/Application Support/Fury/core.bundle/Fury.app/Contents/MacOS/Fury
 ```
 
+A core newly built from this PiBrowse source uses
+`core/src/out/<target>.noindex/PiBrowse.app/Contents/MacOS/PiBrowse`. When installed
+from a PiBrowse core archive, its path is
+`~/Library/Application Support/Fury/core.bundle/PiBrowse.app/Contents/MacOS/PiBrowse`.
+The `Fury.app` path above is a legacy compatibility example, not the output path
+of a new build.
+
 Ask it at any time what is installed:
 
 ```bash
-/Applications/Fury.app/Contents/MacOS/fury-agent install-core
+/Applications/PiBrowse.app/Contents/MacOS/fury-agent install-core
 ```
 
 ### 3. Open it
 
-Open Fury from Applications. There is no account, no sign-up and no server: it
+Open PiBrowse from Applications. There is no account, no sign-up and no server: it
 starts working immediately, and everything stays on this machine.
 
 Team features — shared profiles, a shared proxy pool, per-project access — are
 in **Settings → Team server**, which is also where you create an account and
-where the instructions for running your own server are. The sign-up screen
-comes with the project's open server already filled in; a team with a server of
-its own replaces the address. That is a decision you can make
-later, or never.
+where the instructions for running your own server are. Enter your team server address when you choose to connect. PiBrowse does not prefill an upstream server. You can keep using local mode without an account.
 
 ### Verifying what you downloaded
 
@@ -105,42 +128,32 @@ Two `OK` lines mean the files are what was published.
 
 ### If macOS refuses to open it
 
-**It should not, from 0.1.4's re-upload of 21.09.2026 on.** The application,
-the core and the disk image are signed with a Developer ID and carry a stapled
-notarisation ticket; `spctl --assess` on a machine that has never seen them
-answers `accepted, source=Notarized Developer ID`. If a current download is
-refused, the file is not what was published — check it against `SHA256SUMS`
-before anything else.
+Check the signing status and checksums published with the PiBrowse build. The upstream Fury macOS releases were signed and notarised from 21.09.2026; that history does not establish the signing status of a PiBrowse build. The steps below apply to an unsigned or locally built application.
 
-What follows is for **0.1.3 and earlier**, which were ad-hoc signed, and for
-a bundle you built yourself.
-
-**"Fury cannot be opened because the developer cannot be verified."** This is
+**"PiBrowse cannot be opened because the developer cannot be verified."** This is
 the normal result for an unsigned application, and it is what you should expect
 for the *correct* file — an earlier version of this page told you to download it
 again, which was a loop with no exit. Instead:
 
   1. Try to open it once and dismiss the dialog. Then System Settings →
-     Privacy & Security, scroll to the bottom: next to *"Fury" was blocked* press
+     Privacy & Security, scroll to the bottom: next to *"PiBrowse" was blocked* press
      **Open Anyway** and confirm. macOS remembers the choice for that copy.
      (Right-click → **Open** used to be enough; since macOS 15 it is not.)
   2. Or strip the quarantine flag in Terminal, which is what the dialog is
      really about:
 
      ```bash
-     xattr -dr com.apple.quarantine /Applications/Fury.app
+     xattr -dr com.apple.quarantine /Applications/PiBrowse.app
      ```
 
 The same applies to the core: `fury-agent install-core` removes the flag from
 what it unpacks, which is why the core needs no step of its own here.
 
-**"Fury is damaged and can't be opened."** On macOS 15 and later this is the
+**"PiBrowse is damaged and can't be opened."** On macOS 15 and later this is the
 wording you get for an ad-hoc signed download, so it is the same case as above:
-strip the quarantine flag and it opens. The release 0.1.2 bundle passes
-`codesign --verify --deep --strict` on the machine it was built on, so the
-signature itself is sound. If the message survives the `xattr` step, then the
+strip the quarantine flag only after checking the download source and published checksums. If the message survives the `xattr` step, the
 seal is genuinely broken — something was added to or removed from inside
-`Fury.app` — and the fix is to delete it and unpack the download again.
+`PiBrowse.app` — and the fix is to delete it and unpack the download again.
 
 **A core you built yourself will not start**, with a message about *Team IDs*.
 That is a signing arrangement rather than a broken build; see
@@ -149,34 +162,29 @@ in full.
 
 ## Windows
 
-Works, as of 16.08.2026, and in the releases since 0.1.1. An earlier version of
-this section said "not yet" for as long as that was true: the launcher was
-ported first, and the core — the Chromium build — was the part nobody had run on
-a Windows machine. It has been run now, and `tools/verify-windows.ps1` passes
-30 claims against it on a real machine. The same two downloads as on macOS.
+Use the Windows build listed on PiBrowse Releases. The compatible upstream Windows core has been exercised by `tools/verify-windows.ps1`; check the report attached to the core version you choose.
 
 ### 1. The application
 
-Download `fury-<version>-windows-x64-setup.exe` from
-[Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases)
-and run it. **SmartScreen will object** — "Windows protected your PC" — because
-the installer is not signed, not because anything is wrong with it. Press
-**More info**, then **Run anyway**.
+Download the Windows installer listed on
+[Releases](https://github.com/aronhy/pibrowse/releases)
+and run it. An unsigned installer can trigger SmartScreen. Check the release and its published checksums before choosing **More info → Run anyway**.
 
 The installer asks for nothing: it installs for the current user, into
-`%LOCALAPPDATA%\Fury`, and needs no administrator password. That directory
+`%LOCALAPPDATA%\PiBrowse` (legacy installations: `%LOCALAPPDATA%\Fury`), and needs no administrator password. That directory
 holds `fury-desktop.exe`, `fury-agent.exe` and the uninstaller, and nothing
 else.
 
 ### 2. The browser core
 
-Open Fury and press **Download the browser**, the same button as on macOS: it
-fetches `fury-core-<version>-windows-x64.tar.xz` from Releases, about 150 MB,
+Open PiBrowse and press **Download the browser**, the same button as on macOS: it
+fetches the compatible core; upstream archive names are
+`fury-core-<version>-windows-x64.tar.xz` on [upstream Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases), about 150 MB,
 once, and installs it. Or by hand — download that file from the same page and,
 in PowerShell:
 
 ```powershell
-& "$env:LOCALAPPDATA\Fury\fury-agent.exe" install-core "$env:USERPROFILE\Downloads\fury-core-<version>-windows-x64.tar.xz"
+& "$env:LOCALAPPDATA\PiBrowse\fury-agent.exe" install-core "$env:USERPROFILE\Downloads\fury-core-<version>-windows-x64.tar.xz"
 ```
 
 On Windows the install step reads the version out of the executable instead of
@@ -184,7 +192,7 @@ running it: `chrome.exe --version` starts a browser and never exits.
 
 ### 3. Open it
 
-Open Fury from the Start menu. Everything the macOS section says about accounts
+Open PiBrowse from the Start menu. Everything the macOS section says about accounts
 applies: there are none until you want a team.
 
 **Widevine** — Netflix, Spotify and the other DRM sites — is not in the
@@ -204,7 +212,7 @@ three where one is a guess.
 
 ## Where things are kept
 
-Everything Fury owns is under one directory, so "back it up" and "remove it" are
+Everything PiBrowse owns is under one directory, so "back it up" and "remove it" are
 each one operation:
 
 ```
@@ -212,7 +220,7 @@ each one operation:
   fury.db          profiles, proxies, personas, projects
   profiles/        each profile's browser data — cookies, tabs, bookmarks
   core.bundle/     the installed browser (a package, so search
-                   shows one Fury rather than two)
+                   shows one PiBrowse rather than two)
   dock.noindex/    macOS: one clone of the browser per profile, named
                    after it for the Dock; APFS clones, so no real space
 ```
@@ -225,15 +233,15 @@ than a cache miss.
 Set `FURY_HOME` to put it somewhere else — an external disk, or an encrypted
 volume.
 
-To remove Fury completely: delete that directory and `/Applications/Fury.app`
-— on Windows, that directory and Fury from Settings → Apps.
+To remove PiBrowse completely: delete that directory and `/Applications/PiBrowse.app`
+— on Windows, that directory and PiBrowse from Settings → Apps.
 Nothing is written anywhere else, and nothing is left behind on any server you
 did not set up yourself.
 
 ## Updating
 
 From 0.3.0 the bar that says a new version is out has an **Update** button:
-Fury downloads the new version, checks its signature, installs it and restarts.
+PiBrowse downloads the new version, checks its signature, installs it and restarts.
 Profiles, proxies and settings stay. Close open profiles first; the button
 says so if they are open. Before 0.3.0, and whenever you prefer to do it by
 hand: download the new `.dmg` and drag the application over the old one. For a new core, run

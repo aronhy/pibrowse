@@ -1,0 +1,250 @@
+diff --git a/chrome/browser/renderer_preferences_util.cc b/chrome/browser/renderer_preferences_util.cc
+--- a/chrome/browser/renderer_preferences_util.cc
++++ b/chrome/browser/renderer_preferences_util.cc
+@@ -261,7 +261,7 @@
+       // alone, which at least keeps whatever the profile already had.
+       if (policy == blink::mojom::WebRtcIpHandlingPolicy::kDefault &&
+           *want != blink::kWebRTCIPHandlingDefault) {
+-        LOG(ERROR) << "fury: webrtc.ipHandlingPolicy=" << *want
++        LOG(ERROR) << "PiBrowse: webrtc.ipHandlingPolicy=" << *want
+                    << " is not a policy Chromium knows; leaving WebRTC routing "
+                       "as the profile had it";
+       } else {
+diff --git a/components/embedder_support/user_agent_utils.cc b/components/embedder_support/user_agent_utils.cc
+--- a/components/embedder_support/user_agent_utils.cc
++++ b/components/embedder_support/user_agent_utils.cc
+@@ -706,7 +706,7 @@
+       if (slash == std::string::npos || slash == 0 ||
+           slash + 1 == entry.size()) {
+         // Refuse the whole list rather than emit a partial one.
+-        LOG(ERROR) << "fury: malformed brand entry \"" << entry << "\" at "
++        LOG(ERROR) << "PiBrowse: malformed brand entry \"" << entry << "\" at "
+                    << path;
+         return;
+       }
+diff --git a/components/fury/fury_config.cc b/components/fury/fury_config.cc
+--- a/components/fury/fury_config.cc
++++ b/components/fury/fury_config.cc
+@@ -53,7 +53,7 @@
+ // which is what HANDLE_EINTR was doing here before.
+ std::optional<std::string> ReadAll(base::File& file) {
+   if (!file.IsValid()) {
+-    LOG(ERROR) << "fury: the fingerprint config slot is not a readable file";
++    LOG(ERROR) << "PiBrowse: the fingerprint config slot is not a readable file";
+     return std::nullopt;
+   }
+   std::string out;
+@@ -65,14 +65,14 @@
+     std::optional<size_t> n =
+         file.ReadAtCurrentPos(base::as_writable_byte_span(base::span(buf)));
+     if (!n.has_value()) {
+-      LOG(ERROR) << "fury: reading fingerprint config";
++      LOG(ERROR) << "PiBrowse: reading fingerprint config";
+       return std::nullopt;
+     }
+     if (*n == 0) {
+       break;
+     }
+     if (out.size() + *n > kMaxConfigBytes) {
+-      LOG(ERROR) << "fury: fingerprint config exceeds " << kMaxConfigBytes
++      LOG(ERROR) << "PiBrowse: fingerprint config exceeds " << kMaxConfigBytes
+                  << " bytes";
+       return std::nullopt;
+     }
+@@ -101,7 +101,7 @@
+   if (g_config) {
+     // Initialising twice would mean one process gave two different answers at
+     // two different times. Refuse loudly rather than pick one.
+-    LOG(ERROR) << "fury: config already initialised";
++    LOG(ERROR) << "PiBrowse: config already initialised";
+     return false;
+   }
+ 
+@@ -111,7 +111,7 @@
+   std::optional<base::DictValue> parsed =
+       base::JSONReader::ReadDict(json, base::JSON_PARSE_RFC);
+   if (!parsed) {
+-    LOG(ERROR) << "fury: fingerprint config is not a JSON object";
++    LOG(ERROR) << "PiBrowse: fingerprint config is not a JSON object";
+     return false;
+   }
+ 
+@@ -119,14 +119,14 @@
+ 
+   std::optional<int> schema = dict.FindInt("schema_version");
+   if (!schema.has_value()) {
+-    LOG(ERROR) << "fury: fingerprint config has no schema_version";
++    LOG(ERROR) << "PiBrowse: fingerprint config has no schema_version";
+     return false;
+   }
+   if (*schema != kSupportedSchemaVersion) {
+     // Deliberately fatal rather than best-effort: honouring some fields and
+     // ignoring others produces a profile whose spoofed values contradict its
+     // un-spoofed ones, which is a stronger signal than not spoofing at all.
+-    LOG(ERROR) << "fury: fingerprint config schema " << *schema
++    LOG(ERROR) << "PiBrowse: fingerprint config schema " << *schema
+                << " is not supported by this build (expected "
+                << kSupportedSchemaVersion << ")";
+     return false;
+@@ -154,7 +154,7 @@
+   base::MappedReadOnlyRegion mapped =
+       base::ReadOnlySharedMemoryRegion::Create(json->size());
+   if (!mapped.IsValid()) {
+-    LOG(ERROR) << "fury: cannot allocate shared memory for the config";
++    LOG(ERROR) << "PiBrowse: cannot allocate shared memory for the config";
+     delete g_config;
+     g_config = nullptr;
+     return false;
+@@ -170,13 +170,13 @@
+   auto region =
+       base::shared_memory::ReadOnlySharedMemoryRegionFrom(switch_value);
+   if (!region.has_value()) {
+-    LOG(ERROR) << "fury: cannot recover the config region from the switch";
++    LOG(ERROR) << "PiBrowse: cannot recover the config region from the switch";
+     return false;
+   }
+ 
+   base::ReadOnlySharedMemoryMapping mapping = region->Map();
+   if (!mapping.IsValid()) {
+-    LOG(ERROR) << "fury: cannot map the config region";
++    LOG(ERROR) << "PiBrowse: cannot map the config region";
+     return false;
+   }
+ 
+@@ -236,7 +236,7 @@
+       // A list with a non-string in it means the agent and the core disagree
+       // about the schema. Treat that as absent rather than silently dropping
+       // entries: a partially applied list is a contradiction.
+-      LOG(ERROR) << "fury: non-string entry in list at " << path;
++      LOG(ERROR) << "PiBrowse: non-string entry in list at " << path;
+       return std::nullopt;
+     }
+     out.push_back(*s);
+diff --git a/components/fury/key_provider/fury_key.cc b/components/fury/key_provider/fury_key.cc
+--- a/components/fury/key_provider/fury_key.cc
++++ b/components/fury/key_provider/fury_key.cc
+@@ -63,7 +63,7 @@
+   if (!base::StringToUint(command_line.GetSwitchValueASCII(kOsCryptHandleSwitch),
+                           &raw) ||
+       raw == 0) {
+-    LOG(ERROR) << "fury: --" << kOsCryptHandleSwitch << " is not a valid handle";
++    LOG(ERROR) << "PiBrowse: --" << kOsCryptHandleSwitch << " is not a valid handle";
+     return;
+   }
+   base::File file(base::win::Uint32ToHandle(raw));
+@@ -75,7 +75,7 @@
+   if (!base::StringToInt(command_line.GetSwitchValueASCII(kOsCryptFdSwitch),
+                          &fd) ||
+       fd < 0) {
+-    LOG(ERROR) << "fury: --" << kOsCryptFdSwitch
++    LOG(ERROR) << "PiBrowse: --" << kOsCryptFdSwitch
+                << " is not a valid descriptor";
+     return;
+   }
+@@ -103,7 +103,7 @@
+     filled += *n;
+   }
+   if (filled != kSize) {
+-    LOG(ERROR) << "fury: os_crypt key was " << filled << " bytes, expected "
++    LOG(ERROR) << "PiBrowse: os_crypt key was " << filled << " bytes, expected "
+                << kSize;
+     return;
+   }
+diff --git a/components/fury/location/fury_location_provider.cc b/components/fury/location/fury_location_provider.cc
+--- a/components/fury/location/fury_location_provider.cc
++++ b/components/fury/location/fury_location_provider.cc
+@@ -49,7 +49,7 @@
+   }
+   if (*latitude < -90.0 || *latitude > 90.0 || *longitude < -180.0 ||
+       *longitude > 180.0) {
+-    LOG(ERROR) << "fury: geolocation out of range, ignoring";
++    LOG(ERROR) << "PiBrowse: geolocation out of range, ignoring";
+     return std::nullopt;
+   }
+ 
+diff --git a/content/app/content_main_runner_impl.cc b/content/app/content_main_runner_impl.cc
+--- a/content/app/content_main_runner_impl.cc
++++ b/content/app/content_main_runner_impl.cc
+@@ -974,10 +974,10 @@
+           // future Rust stops passing bInheritHandles = TRUE, the handle simply
+           // is not there, and this is what turns that into a browser which will
+           // not start rather than one quietly running with no persona.
+-          LOG(FATAL) << "fury: fingerprint config could not be loaded";
++          LOG(FATAL) << "PiBrowse: fingerprint config could not be loaded";
+         }
+       } else {
+-        LOG(FATAL) << "fury: --" << fury::switches::kFingerprintFileHandle
++        LOG(FATAL) << "PiBrowse: --" << fury::switches::kFingerprintFileHandle
+                    << " is not a valid handle";
+       }
+     }
+@@ -989,10 +989,10 @@
+               &fd) &&
+           fd >= 0) {
+         if (!fury::FuryConfig::InitializeInBrowser(base::File(fd))) {
+-          LOG(FATAL) << "fury: fingerprint config could not be loaded";
++          LOG(FATAL) << "PiBrowse: fingerprint config could not be loaded";
+         }
+       } else {
+-        LOG(FATAL) << "fury: --" << fury::switches::kFingerprintFd
++        LOG(FATAL) << "PiBrowse: --" << fury::switches::kFingerprintFd
+                    << " is not a valid descriptor";
+       }
+     }
+@@ -1000,7 +1000,7 @@
+   } else if (command_line.HasSwitch(fury::switches::kFingerprintHandle)) {
+     if (!fury::FuryConfig::InitializeInChild(command_line.GetSwitchValueASCII(
+             fury::switches::kFingerprintHandle))) {
+-      LOG(FATAL) << "fury: child could not map the fingerprint config";
++      LOG(FATAL) << "PiBrowse: child could not map the fingerprint config";
+     }
+   }
+ 
+diff --git a/third_party/blink/renderer/core/inspector/locale_controller.cc b/third_party/blink/renderer/core/inspector/locale_controller.cc
+--- a/third_party/blink/renderer/core/inspector/locale_controller.cc
++++ b/third_party/blink/renderer/core/inspector/locale_controller.cc
+@@ -74,7 +74,7 @@
+         std::optional<base::i18n::LanguageTag> tag =
+             base::i18n::GetLanguageTagFromString(*locale);
+         if (!tag) {
+-          LOG(ERROR) << "fury: invalid locale " << *locale;
++          LOG(ERROR) << "PiBrowse: invalid locale " << *locale;
+           return;
+         }
+         base::AutoLock locker(instance().lock_);
+diff --git a/third_party/blink/renderer/core/timezone/timezone_controller.cc b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+--- a/third_party/blink/renderer/core/timezone/timezone_controller.cc
++++ b/third_party/blink/renderer/core/timezone/timezone_controller.cc
+@@ -139,7 +139,7 @@
+         if (SetIcuTimeZoneAndNotifyV8(id)) {
+           instance().override_timezone_id_ = id;
+         } else {
+-          LOG(ERROR) << "fury: invalid timezone " << *timezone;
++          LOG(ERROR) << "PiBrowse: invalid timezone " << *timezone;
+         }
+       }
+     }
+diff --git a/third_party/blink/renderer/modules/permissions/permissions.cc b/third_party/blink/renderer/modules/permissions/permissions.cc
+--- a/third_party/blink/renderer/modules/permissions/permissions.cc
++++ b/third_party/blink/renderer/modules/permissions/permissions.cc
+@@ -350,7 +350,7 @@
+           if (status) {
+             result->status = *status;
+           } else {
+-            LOG(ERROR) << "fury: permissions." << key << " must be granted, "
++            LOG(ERROR) << "PiBrowse: permissions." << key << " must be granted, "
+                        << "denied or prompt; got " << *want;
+           }
+         }
+diff --git a/third_party/blink/renderer/modules/speech/speech_synthesis.cc b/third_party/blink/renderer/modules/speech/speech_synthesis.cc
+--- a/third_party/blink/renderer/modules/speech/speech_synthesis.cc
++++ b/third_party/blink/renderer/modules/speech/speech_synthesis.cc
+@@ -200,7 +200,7 @@
+         // "Альберт" and "Саманта" and narrowed the list to zero. Persona voice
+         // lists must be captured in the same UI locale the profile runs in.
+         if (kept.empty()) {
+-          LOG(ERROR) << "fury: speech.voices matched none of the "
++          LOG(ERROR) << "PiBrowse: speech.voices matched none of the "
+                      << voice_list_.size() << " installed voices — ignoring. "
+                      << "Voice names are localised; capture them in the "
+                      << "profile's own locale.";

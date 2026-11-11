@@ -1,0 +1,39 @@
+diff --git a/components/vector_icons/aggregate_vector_icons.py b/components/vector_icons/aggregate_vector_icons.py
+--- a/components/vector_icons/aggregate_vector_icons.py
++++ b/components/vector_icons/aggregate_vector_icons.py
+@@ -165,20 +165,31 @@
+     ) as input_header_template:
+         header_template_contents = input_header_template.readlines()
+ 
+-    output_header = open(output_h, "w")
++    header_parts = []
+     for line in header_template_contents:
+         if not TEMPLATE_PLACEHOLDER in line:
+-            output_header.write(line)
++            header_parts.append(line)
+             continue
+ 
+         for icon in path_map:
+             (icon_name, extension) = os.path.splitext(
+                 os.path.basename(path_map[icon])
+             )
+-            output_header.write(
++            header_parts.append(
+                 "VECTOR_ICON_TEMPLATE_H({})\n".format(GetIconName(icon_name))
+             )
+-    output_header.close()
++    header_contents = "".join(header_parts)
++    # Drawing-command changes do not change the exported declarations. Keep
++    # identical headers untouched so the action's restat avoids rebuilding
++    # their C++ consumers. Definitions below are still generated normally.
++    try:
++        with open(output_h, "r") as existing_header:
++            header_unchanged = existing_header.read() == header_contents
++    except FileNotFoundError:
++        header_unchanged = False
++    if not header_unchanged:
++        with open(output_h, "w") as output_header:
++            output_header.write(header_contents)
+ 
+     # Copy the vector icon drawing commands from the .icon files, splitting them
+     # into their individual icon representations, and use them to generate

@@ -251,7 +251,7 @@ impl Farms {
         for farm in &mut list {
             for track in farm.tracks.values_mut() {
                 for s in track.sessions.iter_mut().filter(|s| s.in_flight()) {
-                    s.ended = Some(Outcome::Failed { error: "Fury stopped during the session".into() });
+                    s.ended = Some(Outcome::Failed { error: "PiBrowse stopped during the session".into() });
                 }
             }
         }

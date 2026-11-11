@@ -1,39 +1,24 @@
-# Brand assets
+# PiBrowse brand assets
 
-Two source files, and everything else is generated from them.
+PiBrowse uses a blue pi symbol and wordmark. The current README assets are
+`pibrowse-logo.png` and `pibrowse-logo-dark.png` where present; `logo.png` and
+`logo-dark.png` remain supported asset filenames. The square `icon.png` is the
+controller icon source; `icon-browser.png` supplies the browser-internal marks.
 
-| File | What it is | Used for |
-|---|---|---|
-| `logo.png` | the flame F beside the wordmark, dark type on transparency | README on a light background, the site |
-| `logo-dark.png` | the same with the type inverted, flame untouched | README on a dark background — GitHub has both themes and a black wordmark vanishes in one of them |
-| `icon.png` | the flame F alone in a rounded dark square, **1024×1024** | the macOS app icon, the Windows icon, the Tauri shell, the favicon |
+Run `assets/generate.sh` to regenerate `desktop/src-tauri/icons/*` and
+`core/branding/` from the current sources. These filenames are build interfaces,
+not product names.
 
-`logo-dark.png` is generated from `logo.png`, not drawn separately: only the
-near-neutral pixels are inverted, so the flame keeps its colours and the two
-files cannot drift apart.
+The controller and core product names show PiBrowse. Page-visible browser
+properties — User-Agent, `navigator.appName`, `navigator.vendor` and Sec-CH-UA —
+continue to describe Chrome, as required by the fingerprint configuration.
 
-Drop the sources in here and run:
+## macOS 内核 Dock 图标
 
-```bash
-assets/generate.sh
-```
+内核 Dock 使用上游原 Chromium 图标，由运行时代码叠加 01、02、03 序号。构建脚本从 Chromium 的 Git HEAD 保留原生 ICNS、Assets.car 和图标目录；PiBrowse 图标和词标用于控制端及浏览器内页。版权和兼容标识保持不变。
 
-It produces every derived size the build needs: `desktop/src-tauri/icons/*` for
-the Tauri shell, and `core/branding/` for patch 0900, which renames the Chromium
-bundle. Nothing derived is committed by hand — regenerate instead.
+## 浏览器内部矢量标记
 
-## Why 1024×1024 and why a separate icon
+`pibrowse-product-glyph.svg` 从批准的 `icon-browser.png` 白色字形机械提取，保留 p 孔和 i 点；来源及校验值记录在 `pibrowse-product-glyph.source.json`。运行 `python3 assets/generate-product-glyph.py --check` 可验证与源图白色 mask 逐像素一致。
 
-macOS wants a 1024px master to build `app.icns`, and Chromium additionally wants
-an `Assets.car` compiled from `AppIcon.icon`. Both come from one square PNG.
-
-The wordmark cannot be the app icon: at 32px the words are unreadable and the
-result is a grey smear in the dock. The flame F alone survives the shrink, which
-is why there are two files rather than one.
-
-## What must NOT change
-
-The icon and the name are what the USER and the OPERATING SYSTEM see. Nothing a
-PAGE can read may move: the User-Agent, `navigator.appName`, `navigator.vendor`
-and the Sec-CH-UA brand list belong to patch 0011 and keep saying Chrome. A
-branding change that reaches a page is a detection vector rather than branding.
+Chromium 的 `0908` 补丁将这套字形应用到内页导航、暗色标题和原生产品标记。原有资源 ID 保留；安全锁、警告图形、Google 等第三方标志和原生 Dock 图标不变。生成器的 `--chromium-source`、`--patch` 和 `--staging-dir` 参数可从未应用 `0908` 的源码重生补丁，先在暂存目录验证。

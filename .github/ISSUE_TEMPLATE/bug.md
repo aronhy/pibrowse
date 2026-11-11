@@ -12,7 +12,7 @@ labels: bug
 
 **Version and platform**
 
-- Fury: <!-- Settings → About -->
+- PiBrowse: <!-- Settings → About -->
 - macOS/Linux version:
 - Built from source, or a release?
 

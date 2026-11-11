@@ -827,7 +827,7 @@ async fn complete_enrollment(
         if !proven {
             return Err(ApiError::BadRequest(
                 "this server confirms the invited address by email first. If the app did not ask for \
-                 a code from a letter, update Fury to 0.3.12 or later"
+                 a code from a letter, update PiBrowse to 0.3.12 or later"
                     .into(),
             ));
         }
@@ -3996,7 +3996,7 @@ async fn rotate_org_key(
     let missing = |what: &str, id: Uuid| {
         ApiError::BadRequest(format!(
             "this rotation leaves {what} {id} under the old key, where nobody could open it \
-             again. Update Fury on this machine and remove the member again"
+             again. Update PiBrowse on this machine and remove the member again"
         ))
     };
 

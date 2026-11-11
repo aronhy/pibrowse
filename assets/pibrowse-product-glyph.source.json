@@ -1,0 +1,81 @@
+{
+  "source": "assets/icon-browser.png",
+  "source_sha256": "dec6a88aa1eef31f45bd74eb011216d4da1b901c969029e33bfaeaa6aba1fc43",
+  "source_size": [
+    1024,
+    1024
+  ],
+  "selection": {
+    "alpha_min": 128,
+    "rgb_min": 240,
+    "chroma_max": 12,
+    "connectivity": 4,
+    "min_component_pixels": 524,
+    "reject_outer_canvas_fraction": 0.1
+  },
+  "derivation": "directed pixel boundaries; remove exactly collinear vertices only; no fitting, font or hand-drawn coordinates",
+  "layout": "crop glyph bbox; retain aspect/relative spacing; center with proportional 1/12 canvas inset",
+  "retained_components": [
+    {
+      "pixels": 87965,
+      "bbox": [
+        265,
+        358,
+        605,
+        774
+      ]
+    },
+    {
+      "pixels": 26407,
+      "bbox": [
+        660,
+        389,
+        759,
+        678
+      ]
+    },
+    {
+      "pixels": 7697,
+      "bbox": [
+        660,
+        250,
+        759,
+        350
+      ]
+    }
+  ],
+  "rejected_components": [],
+  "glyph_bbox": [
+    265,
+    250,
+    759,
+    774
+  ],
+  "mask_pixels": 122069,
+  "mask_sha256": "30c39bde7e068067d1c0c37c9a71bf102fe34ee40ef43d5f5da226f8040bd33c",
+  "contours": [
+    {
+      "vertices": 652,
+      "signed_area": 105233.0
+    },
+    {
+      "vertices": 238,
+      "signed_area": 26407.0
+    },
+    {
+      "vertices": 312,
+      "signed_area": -17268.0
+    },
+    {
+      "vertices": 234,
+      "signed_area": 7697.0
+    }
+  ],
+  "nonzero_fill_roundtrip_exact": true,
+  "pixel_difference": 0,
+  "foreground_components": 3,
+  "holes": 1,
+  "native_paint": "caller color; no PATH_COLOR_ARGB",
+  "webui_paint": "inherited currentColor; external dark SVG remains #fff",
+  "master_svg_sha256": "df67d0b816ebd52287f1934fb5dc5887ad3f964f841bba88364aca8b7f7db3c9"
+}

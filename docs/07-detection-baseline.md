@@ -1,5 +1,7 @@
 # 07 — Базовая линия детектируемости
 
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names, storage paths and core filenames retain their existing names for compatibility; the product is PiBrowse.
+
 Без этого документа проект превращается в «кажется, работает». Нужны **измеримые критерии**,
 которые прогоняются на каждый ребейз ([03](03-chromium-fork.md)) и блокируют релиз.
 
@@ -50,7 +52,7 @@
 ```
 fury-detect-suite
   ├─ снять полный дамп отпечатка с настоящего Chrome (эталон)
-  ├─ снять тот же дамп с Fury на той же персоне
+  ├─ снять тот же дамп с PiBrowse на той же персоне
   ├─ diff → список расхождений
   └─ красный, если расхождение не в белом списке ожидаемых
 ```

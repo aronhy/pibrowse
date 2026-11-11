@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
+import { PRODUCT_SITE } from "../defaults";
 import { useCallback, useEffect, useState } from "react";
 import { api, type AccessRole, type Perm, type Project } from "../api";
 import { useI18n, type Key } from "../i18n";
@@ -32,8 +33,6 @@ const TAB_LABEL: Record<UsersTab, Key> = {
 /** The tab last open, so coming back to Users lands where one left. */
 const TAB_KEY = "fury.usersTab";
 
-/** Where a newcomer downloads Fury, in the instructions sent with a code. */
-const FURY_SITE = "https://furybrowser.dev";
 
 /** What being let into a project means: see it, open the profiles in it, and
  *  edit them. Not `reveal_secrets`, not `manage_access`, not deletion — those
@@ -631,7 +630,7 @@ export function Users({
                               onClick={() =>
                                 void api
                                   .openUrl(
-                                    `https://t.me/share/url?url=${encodeURIComponent(FURY_SITE)}&text=${encodeURIComponent(text)}`,
+                                    `https://t.me/share/url?url=${encodeURIComponent(PRODUCT_SITE)}&text=${encodeURIComponent(text)}`,
                                   )
                                   .catch((e) => setError(say(e)))
                               }

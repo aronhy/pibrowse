@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-//! `fury-agent mcp`: Fury as an MCP server, for Claude Desktop, Cursor, Claude
+//! `fury-agent mcp`: PiBrowse as an MCP server, for Claude Desktop, Cursor, Claude
 //! Code and any other client that speaks the Model Context Protocol.
 //!
 //! It is this binary rather than a script because a script needs an
@@ -37,7 +37,7 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 const PROTOCOLS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 
 /// The skill, delivered by the server itself: clients put `instructions` from
-/// the handshake in front of the model, so it knows how Fury works without the
+/// the handshake in front of the model, so it knows how PiBrowse works without the
 /// person installing anything else. The same text ships as SKILL.md from the
 /// desktop for clients that read skills from disk.
 pub const SKILL: &str = include_str!("../../shared/mcp/SKILL.md");
@@ -64,13 +64,13 @@ struct Tool {
 }
 
 fn profile_arg() -> Value {
-    json!({ "type": "string", "description": "Profile id, or its exact name as shown in Fury" })
+    json!({ "type": "string", "description": "Profile id, or its exact name as shown in PiBrowse" })
 }
 
 const TOOLS: &[Tool] = &[
     Tool {
         name: "fury_status",
-        description: "Fury's version, whether the browser is installed, and which profiles are open.",
+        description: "PiBrowse's version, whether the browser is installed, and which profiles are open.",
         schema: || json!({ "type": "object", "properties": {} }),
     },
     Tool {
@@ -138,7 +138,7 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "fury_move_to_trash",
-        description: "Move a profile to Fury's Trash. It can be restored from there; nothing is erased. \
+        description: "Move a profile to PiBrowse's Trash. It can be restored from there; nothing is erased. \
                       Ask the person before doing this.",
         schema: || json!({ "type": "object", "properties": { "profile": profile_arg() }, "required": ["profile"] }),
     },
@@ -206,7 +206,7 @@ const TOOLS: &[Tool] = &[
                       ordinary cookies, optionally close it after. Runs in the background; see fury_warm_status.",
         schema: || json!({ "type": "object", "properties": {
             "profiles": { "type": "array", "items": { "type": "string" }, "description": "Ids or exact names" },
-            "urls": { "type": "array", "items": { "type": "string" }, "description": "Sites to visit; default is Fury's list" },
+            "urls": { "type": "array", "items": { "type": "string" }, "description": "Sites to visit; default is PiBrowse's list" },
             "close_after": { "type": "boolean", "description": "Close each profile when done (default true)" },
         }, "required": ["profiles"] }),
     },
@@ -219,7 +219,7 @@ const TOOLS: &[Tool] = &[
         name: "fury_farm_plan",
         description: "Farm profiles on a schedule: every day for a number of days, each opens a few of the sites at \
                       random times within the given hours (in the profile's own timezone), reads them like a warm-up \
-                      and closes. Runs while Fury's agent runs; see fury_farm_status.",
+                      and closes. Runs while PiBrowse's agent runs; see fury_farm_status.",
         schema: || json!({ "type": "object", "properties": {
             "profiles": { "type": "array", "items": { "type": "string" }, "description": "Ids or exact names" },
             "days": { "type": "integer", "description": "How many days (1-90)" },
@@ -227,7 +227,7 @@ const TOOLS: &[Tool] = &[
             "sites_max": { "type": "integer", "description": "Most sites a day (default 12)" },
             "hour_from": { "type": "integer", "description": "Earliest local hour (default 10)" },
             "hour_to": { "type": "integer", "description": "Local hour to stop by (default 22)" },
-            "urls": { "type": "array", "items": { "type": "string" }, "description": "Sites to draw from; default is Fury's list" },
+            "urls": { "type": "array", "items": { "type": "string" }, "description": "Sites to draw from; default is PiBrowse's list" },
             "name": { "type": "string", "description": "A name for the plan" },
         }, "required": ["profiles", "days"] }),
     },
@@ -280,7 +280,7 @@ pub async fn handle(backend: &Backend, msg: Value) -> Option<Value> {
             ok(json!({
                 "protocolVersion": version,
                 "capabilities": { "tools": {} },
-                "serverInfo": { "name": "fury", "title": "Fury", "version": env!("CARGO_PKG_VERSION") },
+                "serverInfo": { "name": "fury", "title": "PiBrowse", "version": env!("CARGO_PKG_VERSION") },
                 "instructions": instructions(),
             }))
         }
@@ -360,7 +360,7 @@ async fn call_tool(backend: &Backend, name: &str, args: &Value) -> anyhow::Resul
             // Fifty, not the five hundred the window allows: a model that
             // misread "5" as "500" should not get to fill the list.
             if !(1..=50).contains(&count) {
-                anyhow::bail!("count must be 1-50 here; for more, create them in the Fury window");
+                anyhow::bail!("count must be 1-50 here; for more, create them in the PiBrowse window");
             }
             let name = s(args, "name").ok_or_else(|| anyhow::anyhow!("name is required"))?;
             let proxy_id: Option<String> = match (s(args, "proxy"), s(args, "proxy_line")) {
@@ -443,7 +443,7 @@ async fn call_tool(backend: &Backend, name: &str, args: &Value) -> anyhow::Resul
         "fury_move_to_trash" => {
             let (id, name) = resolve(backend, args).await?;
             backend("profiles.delete", json!({ "id": id })).await?;
-            Ok(text(&json!({ "moved_to_trash": name, "id": id, "restore": "Fury → Trash → Restore" })))
+            Ok(text(&json!({ "moved_to_trash": name, "id": id, "restore": "PiBrowse → Trash → Restore" })))
         }
         "fury_start_profile" => {
             let (id, name) = resolve(backend, args).await?;
@@ -755,7 +755,7 @@ async fn resolve(backend: &Backend, args: &Value) -> anyhow::Result<(String, Str
 }
 
 /// One request to the running agent over its socket, starting it first if
-/// nothing answers -- Fury does not have to be open for the assistant to work.
+/// nothing answers -- PiBrowse does not have to be open for the assistant to work.
 async fn agent_call(method: &'static str, params: Value) -> anyhow::Result<Value> {
     let endpoint = crate::paths::ipc_endpoint();
     let stream = match fury_platform::Stream::connect(&endpoint).await {
@@ -768,7 +768,7 @@ async fn agent_call(method: &'static str, params: Value) -> anyhow::Result<Value
                 match fury_platform::Stream::connect(&endpoint).await {
                     Ok(s) => break s,
                     Err(_) if tries < 60 => tries += 1,
-                    Err(e) => anyhow::bail!("Fury's agent did not start: {e}. Open the Fury app once and try again"),
+                    Err(e) => anyhow::bail!("PiBrowse's agent did not start: {e}. Open the PiBrowse app once and try again"),
                 }
             }
         }
@@ -784,7 +784,7 @@ async fn agent_call(method: &'static str, params: Value) -> anyhow::Result<Value
     let within = if method == "profile.launch" || method.starts_with("page.") { 120 } else { 30 };
     tokio::time::timeout(Duration::from_secs(within), BufReader::new(read).read_line(&mut line))
         .await
-        .map_err(|_| anyhow::anyhow!("Fury's agent did not answer {method}"))??;
+        .map_err(|_| anyhow::anyhow!("PiBrowse's agent did not answer {method}"))??;
     let r: Value = serde_json::from_str(&line)?;
     if let Some(e) = r.get("err").and_then(Value::as_str) {
         anyhow::bail!("{e}");
@@ -850,7 +850,7 @@ mod tests {
                                     "params": { "protocolVersion": "2025-03-26" } })).await.unwrap();
         assert_eq!(r["result"]["protocolVersion"], "2025-03-26");
         let skill = r["result"]["instructions"].as_str().unwrap();
-        assert!(skill.contains("fury_read_page") && skill.starts_with("# Fury"), "{skill}");
+        assert!(skill.contains("fury_read_page") && skill.starts_with("# PiBrowse"), "{skill}");
         let r = handle(&*b, json!({ "jsonrpc": "2.0", "id": 2, "method": "initialize",
                                     "params": { "protocolVersion": "1999-01-01" } })).await.unwrap();
         assert_eq!(r["result"]["protocolVersion"], PROTOCOLS[0]);

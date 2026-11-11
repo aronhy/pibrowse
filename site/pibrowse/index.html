@@ -4,9 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#17201d">
+  <meta name="impact-site-verification" value="398be8bb-f01c-4a67-a490-77939c2008eb">
   <meta name="description" content="PiBrowse is an open-source project for browser profile workspaces, with local and self-hosted editions. PiBrowse Cloud is in preparation.">
   <link rel="canonical" href="https://pibrowse.dev/">
   <title>PiBrowse — Browser profile workspaces</title>
+  <link rel="icon" href="icon.png">
+  <meta property="og:image" content="https://pibrowse.dev/logo.png">
   <style>
     :root {
       color-scheme: light;
@@ -46,7 +49,7 @@
     }
     .brand, nav a { text-decoration: none; }
     .brand { display: inline-flex; align-items: center; gap: .6rem; font-weight: 750; }
-    .brand svg { width: 1.5rem; height: 1.5rem; color: var(--accent); }
+    .brand img { width: 1.75rem; height: 1.75rem; }
     nav { display: flex; align-items: center; gap: clamp(.65rem, 3vw, 2rem); }
     nav a { display: inline-block; padding: .65rem .1rem; color: var(--on-dark); font-size: .88rem; }
     nav a:hover { color: var(--paper); text-decoration: underline; text-underline-offset: .25em; }
@@ -93,7 +96,23 @@
     .cta:hover span { transform: translateX(.2rem); }
     .illustration { display: block; width: 100%; height: auto; animation: arrive .65s ease-out both; }
     @keyframes arrive { from { opacity: 0; transform: translateY(.6rem); } to { opacity: 1; transform: translateY(0); } }
-    .editions { padding-block: clamp(3.6rem, 8vw, 6.6rem); }
+    .downloads, .editions { padding-block: clamp(3.6rem, 8vw, 6.6rem); }
+    .downloads { border-bottom: 1px solid var(--line); }
+    .downloads > .eyebrow, .release-status { color: var(--muted); }
+    .download-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 2rem;
+      border-block: 1px solid var(--line);
+    }
+    .download { padding-block: 1.35rem 1.6rem; }
+    .download p { max-width: 42ch; margin: 0; color: var(--muted); line-height: 1.6; }
+    .download .cta { margin-top: 1.25rem; }
+    .downloads .cta:focus-visible { outline-color: var(--ink); }
+    .release-status { max-width: 78ch; margin: 1.4rem 0 0; line-height: 1.65; }
+    .release-links { display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; margin-top: .7rem; }
+    .release-links a { display: inline-block; padding-block: .4rem; font-weight: 650; text-underline-offset: .2em; }
+    .downloads ol { max-width: 78ch; margin: 1.5rem 0 0; padding-left: 1.25rem; line-height: 1.7; }
     h2, h3 { letter-spacing: -.045em; line-height: 1.1; }
     h2 { margin: .5rem 0 1.75rem; font-size: clamp(2rem, 5vw, 3.5rem); }
     h3 { margin: .65rem 0 .55rem; font-size: 1.55rem; }
@@ -116,7 +135,9 @@
     @media (max-width: 46rem) {
       .hero .wrap { grid-template-columns: 1fr; }
       .illustration { max-width: 29rem; }
-      .edition-list { grid-template-columns: 1fr; }
+      .edition-list, .download-list { grid-template-columns: 1fr; }
+      .download-list { gap: 0; }
+      .download + .download { border-top: 1px solid var(--line); }
       .edition + .edition { border-left: 0; border-top: 1px solid var(--line); padding-inline-start: 0; }
       .edition:not(:last-child) { padding-inline-end: 0; }
     }
@@ -132,12 +153,11 @@
   <header class="top">
     <div class="wrap">
       <a class="brand" href="/">
-        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M3 7h18M8 7v11m8-11v8a3 3 0 0 0 3 3h2" stroke="currentColor" stroke-width="2.35" stroke-linecap="round"/>
-        </svg>
+        <img src="icon.png" alt="" width="28" height="28">
         PiBrowse
       </a>
       <nav aria-label="Main navigation">
+        <a href="#downloads">Download</a>
         <a href="#editions">Editions</a>
         <a href="https://github.com/aronhy/pibrowse">GitHub</a>
       </nav>
@@ -152,7 +172,7 @@
           <h1 id="title">PiBrowse</h1>
           <p class="tagline">A workspace for each browser profile.</p>
           <p class="intro">Keep browsing sessions separate and return to the profile you need.</p>
-          <a class="cta" href="#editions">Explore editions <span aria-hidden="true">→</span></a>
+          <a class="cta" href="#downloads">Download preview <span aria-hidden="true">→</span></a>
         </div>
 
         <svg class="illustration" viewBox="0 0 500 360" fill="none" aria-hidden="true">
@@ -180,9 +200,39 @@
       </div>
     </section>
 
+    <section class="wrap downloads" id="downloads" aria-labelledby="downloads-title">
+      <p class="eyebrow">PiBrowse 0.5.5 · Preview</p>
+      <h2 id="downloads-title">Download for Apple Silicon.</h2>
+      <div class="download-list">
+        <article class="download">
+          <p class="eyebrow">1 · Desktop application</p>
+          <h3>PiBrowse for macOS</h3>
+          <p>The desktop workspace for profiles, proxies and local or self-hosted use. For Apple Silicon Macs (arm64).</p>
+          <a class="cta" href="https://github.com/aronhy/pibrowse/releases/download/v0.5.5/pibrowse-0.5.5-macos-arm64.dmg">Download desktop (.dmg) <span aria-hidden="true">↓</span></a>
+        </article>
+        <article class="download">
+          <p class="eyebrow">2 · Browser core</p>
+          <h3>Chromium 157.0.8103.39</h3>
+          <p>The PiBrowse browser engine. Install it with the desktop app’s Download the browser button, or import this archive manually.</p>
+          <a class="cta" href="https://github.com/aronhy/pibrowse/releases/download/v0.5.5/pibrowse-core-0.5.5-macos-arm64.tar.xz">Download core (.tar.xz) <span aria-hidden="true">↓</span></a>
+        </article>
+      </div>
+      <ol>
+        <li>Open the desktop download and move PiBrowse.app to Applications.</li>
+        <li>Open PiBrowse and choose <strong>Download the browser</strong> to install the matching core.</li>
+        <li>Create a local profile, or connect to your own team server.</li>
+      </ol>
+      <p class="release-status"><strong>Preview status:</strong> the macOS app and core are ad-hoc signed, without an Apple Developer ID or Apple notarization. macOS may block the first launch; follow the instructions in the release notes. Automatic updates are not configured. This release includes no Windows or Intel Mac binary.</p>
+      <div class="release-links">
+        <a href="https://github.com/aronhy/pibrowse/releases/tag/v0.5.5">Release notes, installation help and checksums</a>
+        <a href="https://github.com/aronhy/pibrowse">Browse the source</a>
+      </div>
+    </section>
+
     <section class="wrap editions" id="editions" aria-labelledby="editions-title">
       <p class="eyebrow">Editions</p>
       <h2 id="editions-title">Choose where your workspaces live.</h2>
+      <p class="release-status">The open-source edition will always be free to download, use locally, and self-host.</p>
       <div class="edition-list">
         <article class="edition">
           <p class="eyebrow">Open source</p>
@@ -197,7 +247,7 @@
         <article class="edition">
           <p class="eyebrow">In preparation</p>
           <h3>PiBrowse Cloud</h3>
-          <p>A hosted edition for teams that want someone else to run the server.</p>
+          <p>A separate, optional hosted edition for teams. PiBrowse Cloud is still in development.</p>
         </article>
       </div>
     </section>

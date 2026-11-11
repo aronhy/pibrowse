@@ -1,4 +1,6 @@
-# fury-server
+# PiBrowse team server (`fury-server`)
+
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names, storage paths and core filenames retain their existing names for compatibility; the product is PiBrowse.
 
 Self-hosted coordination backend. Deliberately dumb: it stores ciphertext and
 metadata, resolves permissions, and streams bundles to and from `FURY_BUNDLE_DIR`

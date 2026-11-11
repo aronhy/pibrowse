@@ -382,7 +382,7 @@ pub fn unpack(
     dest: &Path,
 ) -> anyhow::Result<usize> {
     if sealed.len() < MAGIC.len() + NONCE_LEN || &sealed[..MAGIC.len()] != MAGIC {
-        anyhow::bail!("this is not a Fury bundle");
+        anyhow::bail!("this is not a PiBrowse bundle");
     }
     let key = unhex(&sealer.open(wrapped_key)).ok_or_else(|| {
         anyhow::anyhow!(

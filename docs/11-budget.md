@@ -1,5 +1,7 @@
 # 11 — Что стоит денег, а что нет
 
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names, storage paths and core filenames retain their existing names for compatibility; the product is PiBrowse.
+
 Короткий ответ: **разработку можно сделать почти бесплатной. Минимум — $99 в год.**
 Всё остальное — либо ноль, либо железо, которое у вас, скорее всего, уже есть.
 
@@ -39,7 +41,7 @@
 Технически распространять неподписанное можно: пользователь снимает карантин вручную.
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/Fury.app
+xattr -dr com.apple.quarantine /Applications/PiBrowse.app
 ```
 
 Но для антидетект-браузера это плохо вдвойне: инструкция «отключите защиту macOS

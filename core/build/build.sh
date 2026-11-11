@@ -17,8 +17,8 @@ TARGET="${1:?usage: build.sh <macos-arm64|macos-x64|windows-x64>}"
 # `.noindex` is not decoration: it is the only thing measured to work.
 #
 # ninja writes the five helper applications as standalone bundles beside
-# Fury.app, so a machine that builds ends up with "Fury Helper", "Fury Helper
-# (GPU)" and two things called "Fury" in Spotlight, none of which anybody can
+# PiBrowse.app, so a machine that builds ends up with "PiBrowse Helper", "PiBrowse Helper
+# (GPU)" and two things called "PiBrowse" in Spotlight, none of which anybody can
 # usefully open. A directory whose name ends in .noindex is excluded from the
 # index — the mechanism Xcode uses for DerivedData — and it was checked the same
 # way everything else here is: two identical bundles, one in a plain directory
@@ -63,6 +63,14 @@ case "$TARGET" in
       echo "!! macOS targets require a physical Mac. There is no cross-compile." >&2
       exit 1
     }
+    # Include the compiled catalogue and the logos used inside the browser on
+    # every build. An unavailable actool must stop before gn/ninja can package
+    # a Chromium-branded catalogue. SDK and target args stay configured below.
+    echo "==> PiBrowse icons (link-icons.sh)"
+    FURY_CHROMIUM_SRC="$SRC" "$CORE_DIR/build/link-icons.sh" || {
+      echo "!! could not prepare PiBrowse's icons; refusing to build" >&2
+      exit 1
+    }
     ;;
   windows-x64*)
     case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) ;; *)
@@ -70,14 +78,14 @@ case "$TARGET" in
       exit 1 ;;
     esac
 
-    # Fury's icons into the tree, every time. Nothing did this on Windows until
+    # PiBrowse's icons into the tree, every time. Nothing did this on Windows until
     # 0.2.4: link-icons.sh is macOS-only, so every Windows core wore Chromium's
     # icon on the taskbar. Cheap and idempotent -- the files are regenerated
     # from assets/icon.png and ninja only relinks what they feed.
-    echo "==> Fury icons (link-icons-windows.ps1)"
+    echo "==> PiBrowse icons (link-icons-windows.ps1)"
     powershell.exe -NoProfile -ExecutionPolicy Bypass \
       -File "$(cygpath -w "$CORE_DIR/build/link-icons-windows.ps1")" || {
-      echo "!! could not put Fury's icons into the tree; refusing to build a Chromium-branded core" >&2
+      echo "!! could not put PiBrowse's icons into the tree; refusing to build a Chromium-branded core" >&2
       exit 1
     }
 
@@ -198,8 +206,8 @@ fi
 # Ask Spotlight to skip the build directory.
 #
 # ninja writes the five helper applications as standalone bundles beside
-# Fury.app before copying them into the framework, so a machine that builds ends
-# up with "Fury Helper", "Fury Helper (GPU)" and two things called "Fury" in
+# PiBrowse.app before copying them into the framework, so a machine that builds ends
+# up with "PiBrowse Helper", "PiBrowse Helper (GPU)" and two things called "PiBrowse" in
 # search — none of which anybody can usefully open.
 #
 # .metadata_never_index is the documented way to ask, and on macOS 26 it does
@@ -316,9 +324,9 @@ if [ "$TARGET" = "macos-arm64" ] && [ -d "$SRC/out/macos-x64.noindex" ]; then
 Both macOS slices present. Merge them with Chromium's own universalizer:
 
   python3 "$SRC/chrome/installer/mac/universalizer.py" \\
-    "$SRC/out/macos-arm64.noindex/Fury.app" \\
-    "$SRC/out/macos-x64.noindex/Fury.app" \\
-    "$SRC/out/macos-universal.noindex/Fury.app"
+    "$SRC/out/macos-arm64.noindex/PiBrowse.app" \\
+    "$SRC/out/macos-x64.noindex/PiBrowse.app" \\
+    "$SRC/out/macos-universal.noindex/PiBrowse.app"
 
 NOT lipo on the main executable. That advice used to be here and it is wrong
 for this bundle: lipo would merge one 76 KB launcher and leave the 540 MB

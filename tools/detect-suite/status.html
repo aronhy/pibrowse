@@ -1,6 +1,6 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Fury — measured</title>
+<title>PiBrowse — measured</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root { color-scheme: light dark; --line: #8883; --ok: #1a7f37; --bad: #c1121f; }
@@ -31,7 +31,8 @@
            font-size: .85rem; opacity: .8; }
 </style>
 <body><main>
-<h1>Fury, measured</h1>
+<h1>PiBrowse, measured</h1>
+<p class="note">Existing results are inherited upstream baselines. Validate a PiBrowse build with a fresh capture before attributing these results to it.</p>
 <p class="sub">Every number on this page came from a browser that was running.
    None of them are claims.</p>
 
@@ -58,13 +59,13 @@
 </section>
 
 <section>
-  <h2>Fury and Chrome, side by side</h2>
+  <h2>PiBrowse and Chrome, side by side</h2>
   <p class="note">Both captures were taken on the same machine. <em>differs</em> is
      the expected answer for a spoofed profile and <em>same</em> is the expected
      answer for everything the persona does not claim — the point is that each
      one is deliberate.</p>
   <table>
-    <thead><tr><th></th><th>Fury</th><th>Chrome 153</th><th></th></tr></thead>
+    <thead><tr><th></th><th>PiBrowse</th><th>Chrome 153</th><th></th></tr></thead>
     <tbody><tr><td>user agent</td><td>Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36</td><td>Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36</td><td class="differs">differs</td></tr><tr><td>platform</td><td>Win32</td><td>MacIntel</td><td class="differs">differs</td></tr><tr><td>cores</td><td>12</td><td>10</td><td class="differs">differs</td></tr><tr><td>memory (GB)</td><td>16</td><td>16</td><td class="same">same</td></tr><tr><td>screen width</td><td>1920</td><td>1470</td><td class="differs">differs</td></tr><tr><td>screen height</td><td>1080</td><td>956</td><td class="differs">differs</td></tr><tr><td>timezone</td><td>America/New_York</td><td>Asia/Tbilisi</td><td class="differs">differs</td></tr><tr><td>WebGL vendor</td><td>Google Inc. (NVIDIA)</td><td>Google Inc. (Apple)</td><td class="differs">differs</td></tr><tr><td>WebGL renderer</td><td>ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 (0x00002882) Direct3D11 vs_5_0 ps_5_0, D3D11)</td><td>ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)</td><td class="differs">differs</td></tr><tr><td>fonts detected</td><td>12</td><td>43</td><td class="differs">differs</td></tr><tr><td>canvas stable</td><td>True</td><td>True</td><td class="same">same</td></tr></tbody>
   </table>
 </section>

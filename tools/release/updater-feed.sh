@@ -5,7 +5,7 @@
 # The signed in-app update for a release: what the application's "Update"
 # button downloads (desktop/src-tauri/src/update.rs).
 #
-#     tools/release/updater-feed.sh <version> <stapled Fury.app> <setup.exe> <out dir>
+#     tools/release/updater-feed.sh <version> <stapled PiBrowse.app> <setup.exe> <out dir>
 #
 # Writes into <out dir>:
 #   fury-<v>-macos-arm64.app.tar.gz      the notarised, stapled application
@@ -23,12 +23,12 @@
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-version="${1:?usage: updater-feed.sh <version> <stapled Fury.app> <setup.exe> <out dir>}"
-app="${2:?the stapled Fury.app}"
+version="${1:?usage: updater-feed.sh <version> <stapled PiBrowse.app> <setup.exe> <out dir>}"
+app="${2:?the stapled PiBrowse.app}"
 setup="${3:?the Windows setup.exe}"
 out="$(cd "${4:?the release directory}" && pwd)"
 key="${FURY_UPDATER_KEY:-$HOME/.private_keys/fury-updater.key}"
-repo="https://github.com/furyteamtop/fury-antidetect-browser/releases/download/v$version"
+repo="https://github.com/aronhy/pibrowse/releases/download/v$version"
 
 [ -d "$app" ] || { echo "!! no application at $app" >&2; exit 1; }
 [ -f "$setup" ] || { echo "!! no installer at $setup" >&2; exit 1; }
@@ -64,7 +64,7 @@ out, version, repo, mac, win = sys.argv[1:]
 sig = lambda f: open(f"{out}/{f}.sig").read().strip()
 feed = {
     "version": version,
-    "notes": f"https://github.com/furyteamtop/fury-antidetect-browser/releases/tag/v{version}",
+    "notes": f"https://github.com/aronhy/pibrowse/releases/tag/v{version}",
     "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "platforms": {
         "darwin-aarch64": {"signature": sig(mac), "url": f"{repo}/{mac}"},

@@ -2682,7 +2682,7 @@ impl Agent {
                 let Some(ws) = ws else {
                     return Err(Coded {
                         code: "err.pageNoCdp",
-                        message: "this profile was opened without the automation port (from the Fury window, \
+                        message: "this profile was opened without the automation port (from the PiBrowse window, \
                                   for instance), so its page cannot be driven. Close it with fury_stop_profile \
                                   and start it again with fury_start_profile"
                             .into(),
@@ -3221,7 +3221,7 @@ impl Agent {
                         // left is a profile last opened before a rotation made
                         // by an older Fury, which did not.
                         message: "this profile's cookies were saved under a key that no longer \
-                                  exists: the organisation key was replaced by a version of Fury \
+                                  exists: the organisation key was replaced by a version of PiBrowse \
                                   that did not carry the cookie key over. Opening the profile \
                                   would make the browser delete those cookies, so it was not opened"
                             .into(),
@@ -3333,8 +3333,19 @@ impl Agent {
                 .map(|e| std::path::PathBuf::from(e.path))
                 .collect();
 
+        let window_number = match self.store.window_number(&profile.id).await {
+            Ok(number) => Some(number),
+            Err(error) => {
+                tracing::warn!(%error, "could not assign a browser window number");
+                None
+            }
+        };
         let child = launcher::spawn(&launcher::LaunchSpec {
-            dock_name: Some((&profile.id, &profile.name)),
+            dock_name: Some(crate::dock::Identity {
+                id: &profile.id,
+                name: &profile.name,
+                number: window_number,
+            }),
             core_binary: &core,
             user_data_dir: &dir,
             config: &config,
@@ -3417,6 +3428,9 @@ impl Agent {
         // running entry, so "what does a site see in this profile" can be
         // opened later without a second launch. See docs/16, 5.16.
         let mut out = serde_json::json!({ "pid": pid, "relay_port": relay_port, "probe_url": probe_url });
+        if let Some(number) = window_number {
+            out["window_number"] = serde_json::json!(number);
+        }
         if let Some((port, ws)) = cdp_endpoint {
             out["debug_port"] = serde_json::json!(port);
             out["ws_endpoint"] = serde_json::json!(ws);

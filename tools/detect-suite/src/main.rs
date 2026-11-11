@@ -42,7 +42,7 @@ fn main() -> Result<()> {
                  USAGE:\n  \
                    fury-detect diff [--mode spoof|identity] <baseline.json> <candidate.json>\n      \
                      identity  same browser twice: nothing may differ\n      \
-                     spoof     real Chrome vs Fury: values may differ, behaviour may not\n\
+                     spoof     real Chrome vs PiBrowse: values may differ, behaviour may not\n\
                  \n  \
                    fury-detect persona <capture.json> [--id name] [--weight 0.01]\n      \
                      Turn a probe capture into a persona for the catalogue.\n\
@@ -672,7 +672,7 @@ fn abbreviate(v: Option<&str>) -> String {
 fn report(findings: &[Finding], mode: Mode, a_path: &str, b_path: &str) -> Result<()> {
     let mode_name = match mode {
         Mode::Identity => "identity (same browser twice — nothing may differ)",
-        Mode::Spoof => "spoof (Chrome vs Fury — values may differ, behaviour may not)",
+        Mode::Spoof => "spoof (Chrome vs PiBrowse — values may differ, behaviour may not)",
     };
 
     println!("baseline   {}", Path::new(a_path).display());
@@ -1010,7 +1010,7 @@ fn cmd_report(args: &[String]) -> Result<()> {
         .unwrap_or_else(|| "(not a git checkout)".into());
 
     let mut md = String::new();
-    md.push_str("# Fury — measurement report\n\n");
+    md.push_str("# PiBrowse — measurement report\n\n");
     md.push_str(&format!(
         "{}\n\n",
         if failed == 0 {

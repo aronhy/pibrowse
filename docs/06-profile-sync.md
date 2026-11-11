@@ -1,5 +1,7 @@
 # 06 — Синхронизация профилей
 
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names, storage paths and core filenames retain their existing names for compatibility; the product is PiBrowse.
+
 ## Формат бандла
 
 Бандл — слепок `user-data-dir` профиля Chromium, сведённый к необходимому минимуму.
@@ -200,7 +202,7 @@ TTL-кэша метаданных в `agent/src/store.rs` нет, локальн
 | JSON (EditThisCookie, Puppeteer `page.cookies()`) | импорт/экспорт |
 | Готовый `user-data-dir` из Chrome | импорт |
 | CSV списка профилей с прокси | импорт |
-| Бандл Fury | импорт/экспорт |
+| Бандл PiBrowse | импорт/экспорт |
 
 Экспорт целиком закрыт правом `export_cookies`.
 

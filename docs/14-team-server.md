@@ -1,5 +1,9 @@
 # Сервер для команды: от пустой машины до выданных доступов
 
+> Compatibility note: `FURY_*` settings, `fury-*` commands, package names, storage paths and core filenames retain their existing names for compatibility; the product is PiBrowse.
+
+> PiBrowse source and releases: [aronhy/pibrowse](https://github.com/aronhy/pibrowse). Existing `fury-server-*` downloads and `ghcr.io/furyteamtop/fury-server` examples below are upstream compatibility resources; build this fork from source to deploy PiBrowse.
+
 Это инструкция для того, кто держит сервер. Она описывает, что происходит на
 каждом шаге и почему именно так — потому что половина шагов здесь про ключи, а
 ключи прощают ошибки хуже всего.
@@ -57,7 +61,7 @@ systemctl reload ssh
 Скрипт ставит Postgres, собирает сервер из исходников, кладёт systemd-юнит с
 урезанными правами, включает ufw (22, 80, 443) и Caddy, который сам получает и
 продлевает сертификат. В конце он сам проверяет, что `/v1/me` отвечает ровно
-`401 {"error":"unauthenticated"}` — приложение считает признаком «здесь Fury»
+`401 {"error":"unauthenticated"}` — приложение считает признаком «здесь PiBrowse»
 именно это, и установка не считается законченной, пока ответ другой.
 
 Обновить сервер потом — та же команда.
@@ -84,7 +88,7 @@ Postgres, он сломает соседей. Так было у тестера 
 **Первый запуск.**
 
 ```bash
-git clone https://github.com/furyteamtop/fury-antidetect-browser fury && cd fury
+git clone https://github.com/aronhy/pibrowse pibrowse && cd pibrowse
 cp .env.example .env
 # в .env: FURY_DB_PASSWORD=свой пароль, FURY_VERSION=0.5.3 (последняя версия со страницы релизов)
 docker compose up -d
@@ -133,7 +137,7 @@ location / {
 `fury-server` с тегом `local` это Б.
 
 ```bash
-cd fury
+cd pibrowse
 
 # 1. Копии базы и профилей. Имя тома с профилями — с префиксом проекта,
 #    обычно fury_fury-bundles; точное покажет `docker volume ls`.
