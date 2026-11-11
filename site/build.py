@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright 2026 Bogdan Shapovalov and the Fury authors
-"""Build the landing page from what the repository actually says.
+"""Build the inherited reference landing page from repository data.
+
+The public PiBrowse site is site/pibrowse, deployed with
+site/wrangler.pibrowse.jsonc. This generator does not publish pibrowse.dev.
 
     ./build.py            write dist/
     ./build.py --check    render without writing, and fail if the page cannot
@@ -41,9 +44,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent
 DIST = HERE / "dist"
 
-REPO = "furyteamtop/fury-antidetect-browser"
-# The partner link the application itself opens (desktop/src/components/Partner.tsx).
-PROXY_URL = "https://proxys.io/?refid=278406"
+REPO = "aronhy/pibrowse"
+UPSTREAM_REPO = "furyteamtop/fury-antidetect-browser"
 
 
 def chromium_version() -> str:
@@ -171,7 +173,7 @@ def main() -> int:
         "PERSONAS": str(persona_count()),
         "GATE": str(gate_checks()),
         "REPO": REPO,
-        "PROXY_URL": PROXY_URL,
+        "UPSTREAM_REPO": UPSTREAM_REPO,
         "COMMIT": commit(),
         "BUILT": datetime.date.today().isoformat(),
     }
@@ -254,7 +256,7 @@ def main() -> int:
     # to draw a 40px wordmark and a favicon, which is most of the page's
     # weight for none of its meaning. `sips` ships with macOS; where it does
     # not, the full-size file is copied and the page still works.
-    for src, dst, px in ((ROOT / "assets" / "logo-dark.png", DIST / "logo.png", 520),
+    for src, dst, px in ((ROOT / "assets" / "pibrowse-logo-dark.png", DIST / "logo.png", 520),
                          (ROOT / "assets" / "icon.png", DIST / "icon.png", 96)):
         shutil.copy(src, dst)
         if shutil.which("sips"):

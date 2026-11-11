@@ -14,7 +14,7 @@
     "source and the date of every row. Dolphin Anty publishes no changelog, so",
     "its number is the least certain one here, and the page says so.",
     "",
-    "Fury's own `chrome` here is not used: build.py puts the major from",
+    "PiBrowse's own `chrome` here is not used: build.py puts the major from",
     "core/CHROMIUM_VERSION in its place, so this file cannot make it stale.",
     "",
     "A row with `engine` is not Chromium: its `chrome` holds that engine's own",
@@ -25,7 +25,7 @@
   "source": "docs/08-competitors.md",
   "rows": [
     {
-      "name": "Fury",
+      "name": "PiBrowse",
       "chrome": 157,
       "self": true,
       "teams": "yes",

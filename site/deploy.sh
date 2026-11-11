@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # Copyright 2026 Bogdan Shapovalov and the Fury authors
 #
+# Historical upstream infrastructure helper. The public PiBrowse site uses
+# site/wrangler.pibrowse.jsonc; do not use this to deploy pibrowse.dev.
 # Put the landing page on the server that already serves the team API.
 #
 #     site/deploy.sh [user@host]
