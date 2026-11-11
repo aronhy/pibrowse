@@ -1689,7 +1689,7 @@ export function App() {
             and saying the latter to someone who has been granted nothing sends
             them looking for a profile list that was never theirs. */}
         {view === "proxies" && <Proxies profiles={profiles} local={local} myEmail={me?.email ?? null} />}
-        {view === "extensions" && <ExtensionsView profiles={profiles} />}
+        {view === "extensions" && <ExtensionsView profiles={profiles} projects={projects} />}
         {view === "bookmarks" && <BookmarksView profiles={profiles} />}
         {view === "assistants" && <AssistantsView />}
 

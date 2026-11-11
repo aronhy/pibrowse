@@ -179,6 +179,128 @@ fn reqwest_failure(e: &reqwest::Error) -> (&'static str, String) {
     }
 }
 
+/// One writer at a time for extension-sources.json: it is read, changed and
+/// written whole, and two launches a moment apart would otherwise each write
+/// back a book without the other's line.
+///
+/// Held for that and nothing longer: load, change, write. Never across a
+/// download or a folder being copied. It was, at first -- a launch kept it
+/// while the Web Store was asked through the profile's proxy, so one profile
+/// on a proxy that had died held every other profile's launch and every
+/// `extensions.*` call for as long as webstore.rs waits, which is 300 s per
+/// extension (found in review, 11.11.2026). Whoever has work to do between a
+/// read and a write lets go, and loads the book again before writing: only
+/// its own profile's lines are put into what is there by then.
+///
+/// Never taken while `running` is held, nor `running` while this is, so
+/// there is no order between the two to get wrong.
+static EXT_BOOK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// How long a launch waits for one package from the Web Store.
+///
+/// webstore.rs gives a download 300 s, which suits an install somebody asked
+/// for and is watching. A launch is somebody waiting for a window, and the
+/// extension can arrive at the next one. 45 s is a choice, not a
+/// measurement: no download was timed to arrive at it.
+const LAUNCH_STORE_FETCH: std::time::Duration = std::time::Duration::from_secs(45);
+
+/// Store packages fetched during one operation: (extension, route) → the
+/// package, or why not. One download per distinct proxy, as
+/// `extensions.install_from_store` does it.
+///
+/// `down` is the routes along which a request got no answer at all -- it ran
+/// out of time, or never reached the store (webstore::Unreachable). That is
+/// about the road and not about the extension, and a launch does not ask
+/// along it again (apply_project_extensions).
+#[derive(Default)]
+struct StoreFetches {
+    got: std::collections::HashMap<(String, Option<String>), Result<Vec<u8>, String>>,
+    down: std::collections::HashSet<Option<String>>,
+}
+
+/// The key of every folder in `list`, made where there is none, with whether
+/// any was made: the caller holds EXT_BOOK and writes the book if so.
+fn folder_keys(
+    book: &mut crate::extsets::Book,
+    list: &[crate::extsets::Source],
+) -> (std::collections::HashMap<String, Vec<u8>>, Vec<String>) {
+    let mut keys = std::collections::HashMap::new();
+    let mut minted = Vec::new();
+    for source in list {
+        if let crate::extsets::Source::Folder { path } = source {
+            if book.key_of(path).is_none() {
+                minted.push(path.clone());
+            }
+            keys.insert(path.clone(), book.key_for(path));
+        }
+    }
+    (keys, minted)
+}
+
+/// A project's entries as the interface shows them: what each one is now.
+/// Reads every folder's manifest, so it is called with EXT_BOOK let go, on
+/// keys read beforehand (`folder_keys`): a folder on a disk that answers
+/// slowly is not something every launch should wait behind.
+fn describe_sources(
+    keys: &std::collections::HashMap<String, Vec<u8>>,
+    list: &[crate::extsets::Source],
+) -> Vec<serde_json::Value> {
+    use crate::extsets::Source;
+    let catalogue = fury_shared::extensions::all();
+    list.iter()
+        .map(|source| match source {
+            Source::Store { id } => serde_json::json!({
+                "kind": "store", "id": id,
+                "name": catalogue.iter().find(|e| &e.id == id).map(|e| e.name.clone()),
+            }),
+            Source::Folder { path } => {
+                let Some(key) = keys.get(path) else {
+                    return serde_json::json!({ "kind": "folder", "path": path, "problem": "no key on record" });
+                };
+                let dir = std::path::Path::new(path);
+                let manifest = std::fs::read(dir.join("manifest.json"))
+                    .ok()
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok());
+                match (crate::ext::folder_id(dir, key), manifest) {
+                    (Ok(id), Some(m)) => serde_json::json!({
+                        "kind": "folder", "path": path, "id": id,
+                        "name": m.get("name").and_then(|v| v.as_str()),
+                        "version": m.get("version").and_then(|v| v.as_str()),
+                    }),
+                    (Err(e), _) => serde_json::json!({ "kind": "folder", "path": path, "problem": e.to_string() }),
+                    (Ok(_), None) => serde_json::json!({ "kind": "folder", "path": path, "problem": "manifest.json cannot be read" }),
+                }
+            }
+        })
+        .collect()
+}
+
+/// A profile somebody is in the middle of: its launch has begun, or a call
+/// is changing its extensions. Dropped, the profile is free again.
+///
+/// `running` cannot say this. A profile is put there when its browser is up,
+/// which is the end of `launch`, and before that `launch` brings the
+/// profile's extensions in line with its project -- for as long as the store
+/// takes to answer. All that time every "is it open" check said no: a
+/// refresh could rewrite a directory the launch had just read, re-install
+/// what it had just removed, or remove storage under a browser that was
+/// starting, and the profile could be launched a second time (found in
+/// review, 11.11.2026). The same marker keeps two calls from changing one
+/// profile's extensions at once.
+///
+/// A set of names, not a lock anybody waits on: taking it never blocks, and
+/// whoever finds a profile taken says "open" and goes on to the next.
+struct Busy<'a> {
+    set: &'a std::sync::Mutex<std::collections::HashSet<String>>,
+    id: String,
+}
+
+impl Drop for Busy<'_> {
+    fn drop(&mut self) {
+        self.set.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.id);
+    }
+}
+
 /// The port in `ws://127.0.0.1:51835/devtools/browser/…`, which is the
 /// `debug_port` a launch reports beside the endpoint.
 fn debug_port_of(ws: &str) -> Option<u16> {
@@ -249,6 +371,8 @@ impl Drop for Running {
 pub struct Agent {
     store: Store,
     running: Mutex<HashMap<String, Running>>,
+    /// Profiles being launched or having their extensions changed; see Busy.
+    busy: std::sync::Mutex<std::collections::HashSet<String>>,
     /// Deliberately NOT a field holding the path. See [`Self::core`].
     /// Progress of a core download, if one was asked for. Shared rather than
     /// owned because the download outlives the IPC call that started it: 134 MB
@@ -378,6 +502,7 @@ impl Agent {
         let agent = Arc::new(Self {
             store,
             running: Mutex::new(HashMap::new()),
+            busy: Default::default(),
             core_download: Default::default(),
             mirror: crate::mirror::Hub::new(),
             warmer: crate::warm::Warmer::new(),
@@ -1032,9 +1157,280 @@ impl Agent {
 
             "extensions.list" => {
                 let id = str_param(&params, "profile_id")?;
-                Ok(serde_json::to_value(crate::ext::installed(
-                    &paths::extensions_dir(&id),
-                ))?)
+                check_profile_id(&id)?;
+                // With where each came from, when that is known: it is what
+                // says whether a row can be refreshed, and by whose doing it
+                // is there.
+                let book = crate::extsets::Book::load(paths::extension_sources_file());
+                let given = book.given(&id);
+                let rows: Vec<serde_json::Value> = crate::ext::installed(&paths::extensions_dir(&id))
+                    .into_iter()
+                    .map(|x| {
+                        let mut row = serde_json::to_value(&x).unwrap_or_default();
+                        if let Some(source) = book.source_of(&id, &x.id) {
+                            row["source"] = serde_json::to_value(source).unwrap_or_default();
+                        }
+                        row["from_project"] = json!(given.contains(&x.id));
+                        row
+                    })
+                    .collect();
+                Ok(json!(rows))
+            }
+
+            // An unpacked extension from a folder on this machine, into many
+            // profiles. ext::install_folder says what the key is for; here
+            // only the loop, which is `install_many`'s: an open profile is
+            // skipped and named.
+            "extensions.install_folder" => {
+                let ids: Vec<String> = params
+                    .get("profile_ids")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                    .unwrap_or_default();
+                let folder = crate::extsets::canonical_folder(&str_param(&params, "path")?)?;
+                // Read once before the loop, so a folder that is not an
+                // extension is one error and not one per profile -- and
+                // before a key is made for it, so a folder that is not an
+                // extension does not get one written down. The id this
+                // computes is thrown away: it is the key's, and there is none
+                // yet.
+                crate::ext::folder_id(std::path::Path::new(&folder), &[])?;
+                // The book for the key, and again for the record; not while
+                // the folder is copied into every profile (EXT_BOOK).
+                let key = {
+                    let _book_guard = EXT_BOOK.lock().await;
+                    let mut book = crate::extsets::Book::load(paths::extension_sources_file());
+                    match book.key_of(&folder) {
+                        Some(key) => key,
+                        None => {
+                            let key = book.key_for(&folder);
+                            book.write()?;
+                            key
+                        }
+                    }
+                };
+                let ext_id = crate::ext::folder_id(std::path::Path::new(&folder), &key)?;
+                let mut installed = Vec::new();
+                let mut skipped = Vec::new();
+                let mut about: Option<crate::ext::Installed> = None;
+                for id in ids {
+                    // The id goes into a path, and the install makes the
+                    // directories on the way to it: only for a profile there
+                    // is -- in this machine's store, or a team's that has
+                    // been here -- or a caller's typo becomes a directory
+                    // among the profiles.
+                    if check_profile_id(&id).is_err() {
+                        skipped.push(json!({ "id": id, "reason": "not a profile id" }));
+                        continue;
+                    }
+                    if self.store.profile(&id).await?.is_none() && !paths::profile_dir(&id).is_dir() {
+                        skipped.push(json!({ "id": id, "reason": "no such profile" }));
+                        continue;
+                    }
+                    // Launching counts as open (Busy), and so does another
+                    // call at work on this profile's extensions.
+                    let Some(_busy) = self.claim(&id) else {
+                        skipped.push(json!({ "id": id, "reason": "open" }));
+                        continue;
+                    };
+                    if self.running.lock().await.contains_key(&id) {
+                        skipped.push(json!({ "id": id, "reason": "open" }));
+                        continue;
+                    }
+                    match crate::ext::install_folder(std::path::Path::new(&folder), &paths::extensions_dir(&id), &key) {
+                        Ok(x) => {
+                            about.get_or_insert(x);
+                            installed.push(id);
+                        }
+                        Err(e) => skipped.push(json!({ "id": id, "reason": e.to_string() })),
+                    }
+                }
+                if !installed.is_empty() {
+                    let _book_guard = EXT_BOOK.lock().await;
+                    let mut book = crate::extsets::Book::load(paths::extension_sources_file());
+                    for id in &installed {
+                        book.record(id, &ext_id, crate::extsets::Source::Folder { path: folder.clone() });
+                    }
+                    book.write()?;
+                }
+                Ok(json!({
+                    "extension": json!({ "id": ext_id, "name": about.as_ref().map(|x| x.name.clone()),
+                                         "version": about.as_ref().map(|x| x.version.clone()) }),
+                    "installed": installed,
+                    "skipped": skipped,
+                }))
+            }
+
+            // The newer version of an extension, from wherever it came: the
+            // store is asked again through each profile's own proxy, a folder
+            // is read again. Its storage is not touched, so it stays signed
+            // in. An extension with no source on record -- a .crx somebody
+            // picked, or one installed before sources were kept -- is skipped
+            // and named: there is nowhere to ask.
+            //
+            // A folder is copied again whatever its version says. A developer
+            // saves a file far more often than they bump a number, and "no
+            // change" from a refresh that did nothing is how an hour is lost.
+            "extensions.refresh" => {
+                let ext_id = str_param(&params, "ext_id")?;
+                if !fury_shared::extensions::is_id(&ext_id) {
+                    anyhow::bail!("{ext_id:?} is not an extension id");
+                }
+                let ids: Vec<String> = params
+                    .get("profile_ids")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                    .unwrap_or_default();
+                // Where each profile's copy came from, and a folder's key,
+                // read in one go; the downloads and the copies happen with
+                // the book let go (EXT_BOOK).
+                let mut sources: std::collections::HashMap<String, (crate::extsets::Source, Option<Vec<u8>>)> =
+                    Default::default();
+                {
+                    let _book_guard = EXT_BOOK.lock().await;
+                    let mut book = crate::extsets::Book::load(paths::extension_sources_file());
+                    let mut made = false;
+                    for id in &ids {
+                        let Some(source) = book.source_of(id, &ext_id) else { continue };
+                        let key = match &source {
+                            crate::extsets::Source::Folder { path } => {
+                                made |= book.key_of(path).is_none();
+                                Some(book.key_for(path))
+                            }
+                            crate::extsets::Source::Store { .. } => None,
+                        };
+                        sources.insert(id.clone(), (source, key));
+                    }
+                    if made {
+                        book.write()?;
+                    }
+                }
+                let mut fetched = StoreFetches::default();
+                let mut refreshed = Vec::new();
+                let mut skipped = Vec::new();
+                let mut done: Vec<(String, crate::extsets::Source)> = Vec::new();
+                for id in ids {
+                    if check_profile_id(&id).is_err() {
+                        skipped.push(json!({ "id": id, "reason": "not a profile id" }));
+                        continue;
+                    }
+                    // Launching counts as open (Busy): a refresh then would
+                    // put back what the launch has just taken out.
+                    let Some(_busy) = self.claim(&id) else {
+                        skipped.push(json!({ "id": id, "reason": "open" }));
+                        continue;
+                    };
+                    if self.running.lock().await.contains_key(&id) {
+                        skipped.push(json!({ "id": id, "reason": "open" }));
+                        continue;
+                    }
+                    let before = crate::ext::installed(&paths::extensions_dir(&id))
+                        .into_iter()
+                        .find(|x| x.id == ext_id);
+                    let Some(before) = before else {
+                        skipped.push(json!({ "id": id, "reason": "not_installed" }));
+                        continue;
+                    };
+                    let Some((source, key)) = sources.get(&id) else {
+                        skipped.push(json!({ "id": id, "reason": "no_source" }));
+                        continue;
+                    };
+                    match self.install_from_source(&id, &ext_id, source, key.as_deref(), &mut fetched).await {
+                        Ok(after) => {
+                            refreshed.push(json!({
+                                "id": id, "from": before.version, "to": after.version,
+                                "changed": before.version != after.version,
+                            }));
+                            done.push((id, source.clone()));
+                        }
+                        Err(reason) => skipped.push(json!({ "id": id, "reason": reason })),
+                    }
+                }
+                if !done.is_empty() {
+                    let _book_guard = EXT_BOOK.lock().await;
+                    let mut book = crate::extsets::Book::load(paths::extension_sources_file());
+                    for (id, source) in done {
+                        book.record(&id, &ext_id, source);
+                    }
+                    book.write()?;
+                }
+                Ok(json!({ "refreshed": refreshed, "skipped": skipped }))
+            }
+
+            // What a project gives every profile in it; extsets.rs has the
+            // design. Reading says what each entry is now -- a folder that has
+            // since moved is shown as missing rather than dropped, because the
+            // operator has to see it to fix it.
+            "extensions.project.get" => {
+                let project = str_param(&params, "project_id")?;
+                // A read, and it writes only if it had to make a key -- which
+                // is then the one the install will use, so the id shown is
+                // the id installed. It wrote the book back every time, and
+                // read every folder's manifest with the book held.
+                let (list, keys, options) = {
+                    let _book_guard = EXT_BOOK.lock().await;
+                    let mut book = crate::extsets::Book::load(paths::extension_sources_file());
+                    let list = book.project(&project);
+                    let (keys, minted) = folder_keys(&mut book, &list);
+                    if !minted.is_empty() {
+                        book.write()?;
+                    }
+                    (list, keys, book.options())
+                };
+                let entries = describe_sources(&keys, &list);
+                Ok(json!({ "project_id": project, "entries": entries, "options": options }))
+            }
+            "extensions.project.set" => {
+                let project = str_param(&params, "project_id")?;
+                let list: Vec<crate::extsets::Source> = serde_json::from_value(
+                    params.get("entries").cloned().unwrap_or_else(|| json!([])),
+                )
+                .map_err(|e| anyhow::anyhow!("entries: {e}"))?;
+                let _book_guard = EXT_BOOK.lock().await;
+                let mut book = crate::extsets::Book::load(paths::extension_sources_file());
+                // A folder has to be an extension now, while somebody is
+                // looking: at launch the only place to say so is a log. A
+                // folder the list already has is not asked again -- it may be
+                // on a disk that is not mounted today, and that must not be
+                // what stops another entry being added (Book::set_project).
+                let stored = book.project(&project);
+                for source in &list {
+                    if let crate::extsets::Source::Folder { path } = source {
+                        if stored.contains(&crate::extsets::Source::Folder { path: path.trim().to_string() }) {
+                            continue;
+                        }
+                        let folder = crate::extsets::canonical_folder(path)?;
+                        let key = book.key_for(&folder);
+                        crate::ext::folder_id(std::path::Path::new(&folder), &key)?;
+                    }
+                }
+                book.set_project(&project, list)?;
+                let list = book.project(&project);
+                let (keys, _) = folder_keys(&mut book, &list);
+                book.write()?;
+                let options = book.options();
+                drop(_book_guard);
+                let entries = describe_sources(&keys, &list);
+                Ok(json!({ "project_id": project, "entries": entries, "options": options }))
+            }
+            // The two switches of extsets.rs, for the machine. Read with any
+            // project's list.
+            "extensions.options.set" => {
+                // Both, said out loud. A switch left out was read as "off",
+                // so a caller setting one of them turned the other off
+                // without having mentioned it.
+                let flag = |name: &str| {
+                    params
+                        .get(name)
+                        .and_then(|v| v.as_bool())
+                        .ok_or_else(|| anyhow::anyhow!("{name} is required: true or false"))
+                };
+                let options = crate::extsets::Options { exclusive: flag("exclusive")?, wipe_storage: flag("wipe_storage")? };
+                let _book_guard = EXT_BOOK.lock().await;
+                let mut book = crate::extsets::Book::load(paths::extension_sources_file());
+                book.set_options(options);
+                book.write()?;
+                Ok(json!({ "options": options }))
             }
 
             // Every extension in every profile on this machine, grouped by
@@ -1109,6 +1505,11 @@ impl Agent {
                         skipped.push(json!({ "id": id, "reason": "open" }));
                         continue;
                     }
+                    // Launching counts as open; see Busy.
+                    let Some(_busy) = self.claim(&id) else {
+                        skipped.push(json!({ "id": id, "reason": "open" }));
+                        continue;
+                    };
                     let dir = paths::extensions_dir(&id).join(&parsed.id);
                     match crate::ext::install(&bytes, &dir) {
                         Ok(x) => {
@@ -1160,6 +1561,9 @@ impl Agent {
                 let running = self.running.lock().await;
                 // Route → the package fetched along it, or why it could not be.
                 let mut fetched: std::collections::HashMap<Option<String>, Result<Vec<u8>, String>> = Default::default();
+                // Written down afterwards so `extensions.refresh` has somewhere
+                // to ask (extsets.rs).
+                let mut store_sourced: Vec<String> = Vec::new();
                 let mut installed = Vec::new();
                 let mut skipped = Vec::new();
                 let mut about: Option<crate::ext::Installed> = None;
@@ -1168,6 +1572,11 @@ impl Agent {
                         skipped.push(json!({ "id": id, "reason": "open" }));
                         continue;
                     }
+                    // Launching counts as open; see Busy.
+                    let Some(_busy) = self.claim(&id) else {
+                        skipped.push(json!({ "id": id, "reason": "open" }));
+                        continue;
+                    };
                     let route = if let Some(proxy) = inline.get(&id) {
                         Some(proxy.url())
                     } else {
@@ -1204,11 +1613,23 @@ impl Agent {
                             match crate::ext::install(bytes, &dir) {
                                 Ok(x) => {
                                     about.get_or_insert(x);
+                                    store_sourced.push(id.clone());
                                     installed.push(id);
                                 }
                                 Err(e) => skipped.push(json!({ "id": id, "reason": e.to_string() })),
                             }
                         }
+                    }
+                }
+                drop(running);
+                if !store_sourced.is_empty() {
+                    let _book_guard = EXT_BOOK.lock().await;
+                    let mut book = crate::extsets::Book::load(paths::extension_sources_file());
+                    for id in &store_sourced {
+                        book.record(id, &ext_id, crate::extsets::Source::Store { id: ext_id.clone() });
+                    }
+                    if let Err(e) = book.write() {
+                        tracing::warn!(error = %e, "could not record where the extension came from");
                     }
                 }
                 Ok(json!({
@@ -1227,9 +1648,52 @@ impl Agent {
                 if ext.len() != 32 || !ext.bytes().all(|c| (b'a'..=b'p').contains(&c)) {
                     anyhow::bail!("{ext:?} is not an extension id");
                 }
-                let dir = paths::extensions_dir(&profile).join(&ext);
-                if dir.is_dir() {
-                    std::fs::remove_dir_all(&dir)?;
+                check_profile_id(&profile)?;
+                // Not while it is launching or another call is changing its
+                // extensions (Busy). An open profile is not refused, as it
+                // never was: the directory goes and the browser finds out at
+                // its next start.
+                let Some(_busy) = self.claim(&profile) else {
+                    anyhow::bail!("the profile is being opened, or its extensions are being changed; try again in a moment");
+                };
+                // By what each directory says its id is, as a launch does it
+                // (apply_project_extensions): one installed by hand may sit
+                // under any name. And the directory of that name too, for
+                // one whose manifest no longer reads.
+                let root = paths::extensions_dir(&profile);
+                let mut dirs: Vec<std::path::PathBuf> = crate::ext::installed(&root)
+                    .into_iter()
+                    .filter(|x| x.id == ext)
+                    .map(|x| std::path::PathBuf::from(x.path))
+                    .collect();
+                let by_name = root.join(&ext);
+                if by_name.is_dir() && !dirs.contains(&by_name) {
+                    dirs.push(by_name);
+                }
+                for dir in &dirs {
+                    std::fs::remove_dir_all(dir)?;
+                }
+                // Forgotten, and its storage removed, only once it is gone:
+                // what is still installed still came from somewhere, and
+                // still has its storage in use.
+                let wipe_storage = {
+                    let _book_guard = EXT_BOOK.lock().await;
+                    let mut book = crate::extsets::Book::load(paths::extension_sources_file());
+                    book.forget(&profile, &ext);
+                    if let Err(e) = book.write() {
+                        tracing::warn!(error = %e, "could not forget where the extension came from");
+                    }
+                    book.options().wipe_storage
+                };
+                // `wipe_storage` says "when an extension is removed", and
+                // this is the removing a person does by hand. Not under an
+                // open browser: the directory goes as it always did, but the
+                // storage is LevelDB the browser holds open, and that is left
+                // for it.
+                if wipe_storage && !self.running.lock().await.contains_key(&profile) {
+                    if let Err(e) = crate::ext::remove_state(&paths::profile_dir(&profile), &ext) {
+                        tracing::warn!(extension = %ext, error = format!("{e:#}"), "could not remove the extension's storage");
+                    }
                 }
                 Ok(json!({ "removed": true }))
             }
@@ -1271,6 +1735,11 @@ impl Agent {
                 if running.contains_key(&from) {
                     anyhow::bail!("source_open");
                 }
+                // Launching counts as open, for the source as for each
+                // target; see Busy.
+                let Some(_source_busy) = self.claim(&from) else {
+                    anyhow::bail!("source_open");
+                };
                 let source = paths::profile_dir(&from);
                 let mut installed = Vec::new();
                 let mut skipped = Vec::new();
@@ -1287,6 +1756,10 @@ impl Agent {
                         skipped.push(json!({ "id": id, "reason": "open" }));
                         continue;
                     }
+                    let Some(_busy) = self.claim(&id) else {
+                        skipped.push(json!({ "id": id, "reason": "open" }));
+                        continue;
+                    };
                     let team_held = if self.store.profile(&id).await?.is_some() {
                         None
                     } else {
@@ -2980,6 +3453,13 @@ impl Agent {
             )),
             _ => None,
         });
+        // The profile is this launch's from here until it is in `running` or
+        // the launch has failed -- every return below drops the guard. Under
+        // the id the directory is named by, which for a team profile is the
+        // inline one's. See Busy.
+        let _busy = self
+            .claim(inline.as_ref().map(|p| p.id.as_str()).unwrap_or(profile_id))
+            .ok_or_else(|| anyhow::anyhow!("this profile is already being opened, or its extensions are being changed"))?;
         let closed_unseen = {
             let mut running = self.running.lock().await;
             match running.get_mut(profile_id) {
@@ -3444,6 +3924,18 @@ impl Agent {
         // The profile's own pages on every launch, the start page on the first.
         let start_urls = start_urls_for(&dir, &profile.start_urls, &start_page);
 
+        // What the profile's project gives it, brought up to date before the
+        // directory is read below. A local profile only: a team profile's
+        // project is the server's, and its extensions arrive in its bundle.
+        // Never fatal -- a store that does not answer costs the profile one
+        // extension for one session, not the session.
+        if !from_server {
+            let route = profile.proxy.as_ref().map(|p| p.url());
+            // Boxed, so its future is not carried inside this one's frame:
+            // `launch` is large enough already.
+            Box::pin(self.apply_project_extensions(&profile.id, profile.project_id.as_deref(), route)).await;
+        }
+
         // Whatever has been installed for this profile. Read from disk rather
         // than from the database: the directory is what the browser will
         // actually be handed, and a row saying otherwise after a bundle arrived
@@ -3546,6 +4038,327 @@ impl Agent {
             out["ws"] = serde_json::json!({ "puppeteer": ws, "selenium": ws });
         }
         Ok(out)
+    }
+
+    /// The profile for this caller alone until the guard is dropped, or
+    /// `None` when somebody has it already. See Busy.
+    fn claim(&self, profile_id: &str) -> Option<Busy<'_>> {
+        let taken = self.busy.lock().unwrap_or_else(|e| e.into_inner()).insert(profile_id.to_string());
+        taken.then(|| Busy { set: &self.busy, id: profile_id.to_string() })
+    }
+
+    /// One extension into one profile from where it comes from. The book is
+    /// not touched: the caller reads a folder's key from it beforehand and
+    /// records the source afterwards, and holds EXT_BOOK for neither the copy
+    /// nor the download. The error is a short reason for a `skipped` row, as
+    /// elsewhere.
+    async fn install_from_source(
+        &self,
+        profile_id: &str,
+        ext_id: &str,
+        source: &crate::extsets::Source,
+        folder_key: Option<&[u8]>,
+        fetched: &mut StoreFetches,
+    ) -> Result<crate::ext::Installed, String> {
+        use crate::extsets::Source;
+        let root = paths::extensions_dir(profile_id);
+        match source {
+            Source::Folder { path } => {
+                let Some(key) = folder_key else {
+                    return Err("folder:no key on record".into());
+                };
+                let dir = std::path::Path::new(path);
+                // The folder is somebody's working copy, and its manifest can
+                // have gained a `key` of its own since: that is another
+                // extension, and installing it here would leave two.
+                match crate::ext::folder_id(dir, key) {
+                    Ok(id) if id == ext_id => {}
+                    Ok(id) => return Err(format!("id_mismatch:{id}")),
+                    Err(e) => return Err(format!("folder:{e:#}")),
+                }
+                crate::ext::install_folder(dir, &root, key).map_err(|e| format!("folder:{e:#}"))
+            }
+            Source::Store { id } => {
+                if id != ext_id {
+                    return Err(format!("id_mismatch:{id}"));
+                }
+                let route = match self.store.profile(profile_id).await {
+                    // The rule a launch has (`launch`, "A profile with no
+                    // proxy is refused"): without a proxy only a profile
+                    // whose owner said it may go out without one. This used
+                    // to ask whether `proxy_id` was set and `proxy` was not,
+                    // which store.rs fills from one row, so it was never
+                    // true -- and a profile with no proxy, or whose proxy
+                    // had been deleted, asked the Web Store from this
+                    // machine's own address while its launch was refused
+                    // (found in review, 11.11.2026).
+                    Ok(Some(profile)) => match profile.proxy.as_ref() {
+                        Some(proxy) => Some(proxy.url()),
+                        None if profile.allow_no_proxy => None,
+                        None => return Err("proxy_missing".into()),
+                    },
+                    Ok(None) => return Err("no such profile".into()),
+                    Err(e) => return Err(e.to_string()),
+                };
+                let bytes = self.fetch_from_store(id, route, None, fetched).await?;
+                crate::ext::install(&bytes, &root.join(id)).map_err(|e| e.to_string())
+            }
+        }
+    }
+
+    /// The store's package for `ext_id` along `route`, once per operation, and
+    /// only if the key inside derives the id that was asked for (webstore.rs).
+    /// `limit` is for a caller that cannot wait as long as webstore.rs does;
+    /// running out of it is a failure like any other, and is remembered for
+    /// the route like any other.
+    async fn fetch_from_store(
+        &self,
+        ext_id: &str,
+        route: Option<String>,
+        limit: Option<std::time::Duration>,
+        fetched: &mut StoreFetches,
+    ) -> Result<Vec<u8>, String> {
+        let slot = (ext_id.to_string(), route.clone());
+        if !fetched.got.contains_key(&slot) {
+            let fetching = crate::webstore::fetch(ext_id, route.as_deref());
+            let answer = match limit {
+                None => fetching.await,
+                Some(limit) => match tokio::time::timeout(limit, fetching).await {
+                    Ok(answer) => answer,
+                    Err(_) => Err(anyhow::Error::new(crate::webstore::Unreachable::new(format!(
+                        "the Web Store did not answer within {limit:?}"
+                    )))),
+                },
+            };
+            let got = match answer {
+                Ok(bytes) => match crate::ext::parse(&bytes) {
+                    Ok(parsed) if parsed.id == ext_id => Ok(bytes),
+                    Ok(parsed) => Err(format!("id_mismatch:{}", parsed.id)),
+                    Err(e) => Err(e.to_string()),
+                },
+                Err(e) => {
+                    if e.downcast_ref::<crate::webstore::Unreachable>().is_some() {
+                        fetched.down.insert(route.clone());
+                    }
+                    Err(format!("fetch:{e:#}"))
+                }
+            };
+            fetched.got.insert(slot.clone(), got);
+        }
+        fetched.got[&slot].clone()
+    }
+
+    /// Brings one profile's extensions in line with its project's list before
+    /// it launches: installs what the list has and the profile lacks, removes
+    /// what an earlier project gave and this one does not. extsets.rs says
+    /// what may be removed and why nothing else is.
+    ///
+    /// `route` is the profile's proxy as the launch resolved it, so a store
+    /// package is fetched along the road the browser is about to take.
+    async fn apply_project_extensions(&self, profile_id: &str, project_id: Option<&str>, route: Option<String>) {
+        Box::pin(self.apply_project_extensions_within(profile_id, project_id, route, LAUNCH_STORE_FETCH)).await;
+    }
+
+    /// The above, with how long one store package may take as a parameter, so
+    /// a test does not have to wait out LAUNCH_STORE_FETCH to see it expire.
+    /// Answers how many store entries were not asked for because the route
+    /// was down, which only the log and a test have a use for.
+    async fn apply_project_extensions_within(
+        &self,
+        profile_id: &str,
+        project_id: Option<&str>,
+        route: Option<String>,
+        store_fetch: std::time::Duration,
+    ) -> usize {
+        use crate::extsets::Source;
+        // Most profiles are in a project with no list and were given nothing,
+        // and they do not queue for the book to find that out. Reading
+        // without the lock is safe because the file is replaced by a rename
+        // (Book::write): what is read is a whole book, the one before a
+        // concurrent write or the one after.
+        {
+            let book = crate::extsets::Book::load(paths::extension_sources_file());
+            let listed = project_id.is_some_and(|p| !book.project(p).is_empty());
+            if !listed && book.given(profile_id).is_empty() {
+                return 0;
+            }
+        }
+
+        // What the book says, read under the lock and then let go of: the
+        // folders are copied and the store is asked without it (EXT_BOOK).
+        let (list, given, options, keys, unkept, sources) = {
+            let _book_guard = EXT_BOOK.lock().await;
+            let mut book = crate::extsets::Book::load(paths::extension_sources_file());
+            let list = project_id.map(|p| book.project(p)).unwrap_or_default();
+            let given = book.given(profile_id);
+            if list.is_empty() && given.is_empty() {
+                return 0;
+            }
+            // A key made now is written down now, before anything is
+            // installed with it. If it cannot be, the folder waits for a
+            // launch that can: installed under a key that was then lost, the
+            // next launch would make another, find this copy under an id the
+            // list does not name, and remove it as no longer wanted.
+            let (keys, minted) = folder_keys(&mut book, &list);
+            let mut unkept: Vec<String> = Vec::new();
+            if !minted.is_empty() {
+                if let Err(e) = book.write() {
+                    tracing::warn!(
+                        error = %e, folders = ?minted,
+                        "could not write extension-sources.json; these folders are not installed from at this launch"
+                    );
+                    unkept = minted;
+                }
+            }
+            let sources: std::collections::HashMap<String, Source> = given
+                .iter()
+                .filter_map(|id| book.source_of(profile_id, id).map(|s| (id.clone(), s)))
+                .collect();
+            (list, given, book.options(), keys, unkept, sources)
+        };
+        // Only where there is a list to be exclusive about; see extsets.rs.
+        let mut exclusive = options.exclusive && !list.is_empty();
+
+        // Each entry with the id it will have. A folder that cannot be read
+        // now is left out of `wanted` and, if it was given before, kept: a
+        // disk that is not mounted today must not uninstall an extension.
+        let mut wanted: Vec<(String, Source)> = Vec::new();
+        let mut unreadable: Vec<String> = Vec::new();
+        for source in list {
+            match &source {
+                Source::Store { id } => wanted.push((id.clone(), source)),
+                // No key that will still be its key tomorrow: treated as a
+                // folder that could not be read, which is what keeps
+                // `exclusive` from guessing below.
+                Source::Folder { path } if unkept.contains(path) => unreadable.push(path.clone()),
+                Source::Folder { path } => {
+                    match crate::ext::folder_id(std::path::Path::new(path), &keys[path]) {
+                        Ok(id) => wanted.push((id, source)),
+                        Err(e) => {
+                            tracing::warn!(folder = %path, error = format!("{e:#}"), "a project's extension folder cannot be read");
+                            unreadable.push(path.clone());
+                        }
+                    }
+                }
+            }
+        }
+        // `exclusive` removes what the list does not name, and a folder that
+        // cannot be read names nothing: the id is in its manifest. Which of
+        // the installed extensions it stands for is not known -- a record of
+        // where each came from exists only for some of them -- so for this
+        // launch nothing is removed for not being on the list. What a project
+        // gave and no longer wants still goes, below.
+        if exclusive && !unreadable.is_empty() {
+            tracing::warn!(
+                folders = ?unreadable,
+                "the project's list is exclusive, but part of it cannot be read: nothing installed by hand is removed at this launch"
+            );
+            exclusive = false;
+        }
+        let root = paths::extensions_dir(profile_id);
+        let installed: Vec<String> = crate::ext::installed(&root).into_iter().map(|x| x.id).collect();
+        let plan = crate::extsets::plan(&wanted, &installed, &given, exclusive);
+
+        // What this launch changes in the book, kept until the lock is taken
+        // again at the end.
+        let mut forgotten: Vec<String> = Vec::new();
+        let mut recorded: Vec<(String, Source)> = Vec::new();
+        let mut now_given = plan.keep.clone();
+        for id in &plan.remove {
+            // From an unreadable folder: not wanted only because it could not
+            // be asked. Stays, and stays the project's if it was -- staying
+            // must not be what makes it the project's.
+            let from_unreadable = matches!(
+                sources.get(id),
+                Some(Source::Folder { path }) if unreadable.contains(path)
+            );
+            if from_unreadable {
+                if given.contains(id) {
+                    now_given.push(id.clone());
+                }
+                continue;
+            }
+            // By what the directory says its id is, not by its name: one
+            // installed by hand may sit under any name.
+            let dirs: Vec<String> = crate::ext::installed(&root).into_iter().filter(|x| &x.id == id).map(|x| x.path).collect();
+            match dirs.iter().try_for_each(std::fs::remove_dir_all) {
+                Ok(()) => {
+                    forgotten.push(id.clone());
+                    if options.wipe_storage {
+                        if let Err(e) = crate::ext::remove_state(&paths::profile_dir(profile_id), id) {
+                            tracing::warn!(extension = %id, error = format!("{e:#}"), "could not remove the extension's storage");
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(extension = %id, error = %e, "could not remove a project's extension");
+                    if given.contains(id) {
+                        now_given.push(id.clone());
+                    }
+                }
+            }
+        }
+        let mut fetched = StoreFetches::default();
+        // Store entries not asked for because the road to the store had
+        // already given no answer at this launch. The limit above is per
+        // package, and eight packages behind a proxy that has died were
+        // eight times 45 s -- the 360 s the shell gives a launch altogether
+        // (desktop/src-tauri/src/agent.rs). They are asked for again at the
+        // next launch.
+        let mut not_asked = 0usize;
+        for (id, source) in &plan.install {
+            if matches!(source, Source::Store { .. }) && fetched.down.contains(&route) {
+                not_asked += 1;
+                continue;
+            }
+            let result = match source {
+                Source::Folder { path } => {
+                    self.install_from_source(profile_id, id, source, keys.get(path).map(Vec::as_slice), &mut fetched).await
+                }
+                // Along the launch's own route rather than the stored one,
+                // which is the same proxy and already resolved.
+                Source::Store { .. } => match self.fetch_from_store(id, route.clone(), Some(store_fetch), &mut fetched).await {
+                    Ok(bytes) => crate::ext::install(&bytes, &root.join(id)).map_err(|e| e.to_string()),
+                    Err(e) => Err(e),
+                },
+            };
+            match result {
+                Ok(x) => {
+                    tracing::info!(extension = %x.name, version = %x.version, "installed from the project's list");
+                    recorded.push((id.clone(), source.clone()));
+                    now_given.push(id.clone());
+                }
+                Err(reason) => tracing::warn!(extension = %id, reason, "the project's extension was not installed"),
+            }
+        }
+
+        if not_asked > 0 {
+            tracing::warn!(
+                skipped = not_asked,
+                "the Web Store could not be reached along this profile's route; the rest of the project's store extensions wait for the next launch"
+            );
+        }
+
+        // Nothing changed: nothing to write, and nobody to wait behind.
+        if forgotten.is_empty() && recorded.is_empty() && now_given == given {
+            return not_asked;
+        }
+        // The book as it is now, not as it was read above: another profile's
+        // launch may have written its own lines in between, and only this
+        // profile's are put into it.
+        let _book_guard = EXT_BOOK.lock().await;
+        let mut book = crate::extsets::Book::load(paths::extension_sources_file());
+        for id in &forgotten {
+            book.forget(profile_id, id);
+        }
+        for (id, source) in recorded {
+            book.record(profile_id, &id, source);
+        }
+        book.set_given(profile_id, now_given);
+        if let Err(e) = book.write() {
+            tracing::warn!(error = %e, "could not write extension-sources.json");
+        }
+        not_asked
     }
 
     async fn stop(&self, profile_id: &str) -> anyhow::Result<serde_json::Value> {
@@ -4363,6 +5176,631 @@ mod exit_check_tests {
         let nobody = agent.dispatch("profiles.randomize", serde_json::json!({ "id": "nobody" })).await;
         assert!(nobody.unwrap_err().to_string().contains("no such profile"));
         std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// A folder of unpacked extension, as a developer has it: no key, and a
+    /// checkout's leftovers beside the files.
+    fn unpacked(dir: &std::path::Path, version: &str) {
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::write(dir.join(".git/HEAD"), "ref").unwrap();
+        std::fs::write(dir.join("sw.js"), format!("// {version}")).unwrap();
+        std::fs::write(
+            dir.join("manifest.json"),
+            serde_json::json!({ "manifest_version": 3, "name": "Local", "version": version,
+                                "background": { "service_worker": "sw.js" } })
+            .to_string(),
+        )
+        .unwrap();
+    }
+
+    /// The whole of what was asked for on 11.11.2026, without a network: a
+    /// folder into a profile by hand, a project's list reaching a profile at
+    /// launch, a refresh picking up a new version, and a profile that changes
+    /// project losing what the project gave and nothing it did not.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn a_projects_extensions_follow_a_profile_in_and_out() {
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!("fury-extsets-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&home).ok();
+        // SAFETY: the mutex above is what makes this single-threaded.
+        unsafe { std::env::set_var("FURY_HOME", &home) };
+        let agent = super::Agent::new().await.expect("an agent in a scratch home");
+        // Boxed: `dispatch` is one large future, and this test awaits it some
+        // thirty times. Inline, the test's own future outgrew the 2 MB a test
+        // thread has and the run died of a stack overflow rather than failing.
+        let call = |method: &'static str, params: serde_json::Value| {
+            let agent = &agent;
+            Box::pin(async move { agent.dispatch(method, params).await })
+        };
+
+        let (shared, own) = (home.join("src shared"), home.join("src-own"));
+        unpacked(&shared, "1.0");
+        unpacked(&own, "7.0");
+        let persona = crate::personas::all().into_iter().find(|p| p.os.name == "macOS").unwrap().id;
+        let with = call("projects.create", serde_json::json!({ "name": "with", "notes": "" })).await.unwrap()["id"]
+            .as_str().unwrap().to_string();
+        let without = call("projects.create", serde_json::json!({ "name": "without", "notes": "" })).await.unwrap()["id"]
+            .as_str().unwrap().to_string();
+        let mut made = Vec::new();
+        for name in ["one", "two"] {
+            let row = serde_json::json!({
+                "id": "", "project_id": with, "name": name, "notes": "", "tags": [], "status": "",
+                "persona_id": persona, "fp_seed": 0, "proxy": null, "proxy_id": null, "timezone": null,
+                "languages": null, "overrides": {}, "start_urls": [], "allow_no_proxy": true, "last_opened_at": null,
+            });
+            made.push(call("profiles.upsert", row).await.unwrap()["id"].as_str().unwrap().to_string());
+        }
+        let (one, two) = (made[0].clone(), made[1].clone());
+        let list = |id: String| {
+            let agent = &agent;
+            Box::pin(async move { agent.dispatch("extensions.list", serde_json::json!({ "profile_id": id })).await.unwrap() })
+        };
+
+        // By hand, into one profile: installed under a pinned id, without the
+        // checkout's .git, and with its source on record.
+        let by_hand = call("extensions.install_folder", serde_json::json!({ "profile_ids": [one], "path": own })).await.unwrap();
+        assert_eq!(by_hand["installed"], serde_json::json!([one]), "{by_hand}");
+        let own_id = by_hand["extension"]["id"].as_str().unwrap().to_string();
+        let rows = list(one.clone()).await;
+        assert_eq!(rows[0]["id"], own_id.as_str());
+        assert_eq!(rows[0]["source"]["kind"], "folder");
+        assert_eq!(rows[0]["from_project"], false);
+        let copy = std::path::PathBuf::from(rows[0]["path"].as_str().unwrap());
+        assert!(copy.join("sw.js").is_file() && !copy.join(".git").exists());
+        let manifest: serde_json::Value = serde_json::from_slice(&std::fs::read(copy.join("manifest.json")).unwrap()).unwrap();
+        assert!(manifest["key"].is_string(), "the id is pinned in the copy");
+        let source: serde_json::Value = serde_json::from_slice(&std::fs::read(own.join("manifest.json")).unwrap()).unwrap();
+        assert!(source.get("key").is_none(), "and the developer's folder is not written to");
+
+        // The project's list. A folder that is not an extension is refused
+        // while somebody is looking.
+        let bad = call("extensions.project.set", serde_json::json!({ "project_id": with,
+            "entries": [{ "kind": "folder", "path": home }] })).await;
+        assert!(bad.is_err());
+        let set = call("extensions.project.set", serde_json::json!({ "project_id": with,
+            "entries": [{ "kind": "folder", "path": shared }] })).await.unwrap();
+        let shared_id = set["entries"][0]["id"].as_str().unwrap().to_string();
+        assert_eq!(set["entries"][0]["version"], "1.0");
+        assert_ne!(shared_id, own_id, "two folders are two extensions");
+
+        // What a launch does first, for both profiles of the project.
+        for id in [&one, &two] {
+            Box::pin(agent.apply_project_extensions(id, Some(&with), None)).await;
+        }
+        let ids = |rows: &serde_json::Value| -> Vec<String> {
+            let mut v: Vec<String> = rows.as_array().unwrap().iter().map(|r| r["id"].as_str().unwrap().to_string()).collect();
+            v.sort();
+            v
+        };
+        let mut both = vec![own_id.clone(), shared_id.clone()];
+        both.sort();
+        assert_eq!(ids(&list(one.clone()).await), both);
+        assert_eq!(ids(&list(two.clone()).await), std::slice::from_ref(&shared_id), "one id in every profile");
+        let given = list(two.clone()).await;
+        assert_eq!(given[0]["from_project"], true);
+
+        // A new version in the folder reaches a profile by refresh, and an
+        // open profile is skipped and named.
+        unpacked(&shared, "1.1");
+        agent.running.lock().await.insert(two.clone(), stand_in("30", None));
+        let r = call("extensions.refresh", serde_json::json!({ "ext_id": shared_id, "profile_ids": [one, two] })).await.unwrap();
+        assert_eq!(r["refreshed"], serde_json::json!([{ "id": one, "from": "1.0", "to": "1.1", "changed": true }]), "{r}");
+        assert_eq!(r["skipped"], serde_json::json!([{ "id": two, "reason": "open" }]));
+        if let Some(mut entry) = agent.running.lock().await.remove(&two) {
+            entry.child.kill().ok();
+            entry.child.wait().ok();
+        }
+
+        // Moved to a project with no list: what the project gave goes, what
+        // was installed by hand stays. The other profile is not touched.
+        call("profiles.move", serde_json::json!({ "ids": [one], "project_id": without })).await.unwrap();
+        Box::pin(agent.apply_project_extensions(&one, Some(&without), None)).await;
+        assert_eq!(ids(&list(one.clone()).await), std::slice::from_ref(&own_id));
+        assert_eq!(ids(&list(two.clone()).await), std::slice::from_ref(&shared_id));
+
+        // And back: it returns, under the same id, so its storage is its own.
+        Box::pin(agent.apply_project_extensions(&one, Some(&with), None)).await;
+        assert_eq!(ids(&list(one.clone()).await), both);
+
+        // The folder gone (a disk not mounted): nothing is uninstalled.
+        std::fs::remove_dir_all(&shared).unwrap();
+        Box::pin(agent.apply_project_extensions(&two, Some(&with), None)).await;
+        assert_eq!(ids(&list(two.clone()).await), std::slice::from_ref(&shared_id), "an unreadable folder must not remove its extension");
+        let gone = call("extensions.project.get", serde_json::json!({ "project_id": with })).await.unwrap();
+        assert!(gone["entries"][0]["problem"].is_string(), "{gone}");
+
+        // The folder is back (the disk is mounted again): `exclusive` below
+        // needs the whole list readable to act at all.
+        unpacked(&shared, "1.1");
+
+        // The two switches. Off until now: the hand-installed one survived
+        // every move above. With `exclusive` it goes at the next launch, and
+        // with `wipe_storage` what it had stored goes with it.
+        let state = crate::paths::profile_dir(&one).join("Default/Local Extension Settings").join(&own_id);
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(state.join("000003.log"), "signed in").unwrap();
+        let opts = call("extensions.project.get", serde_json::json!({ "project_id": with })).await.unwrap();
+        assert_eq!(opts["options"], serde_json::json!({ "exclusive": false, "wipe_storage": false }));
+        call("extensions.options.set", serde_json::json!({ "exclusive": true, "wipe_storage": true })).await.unwrap();
+        // In a project with no list `exclusive` removes nothing.
+        Box::pin(agent.apply_project_extensions(&one, Some(&without), None)).await;
+        assert!(ids(&list(one.clone()).await).contains(&own_id), "an empty list must not strip a profile");
+        Box::pin(agent.apply_project_extensions(&one, Some(&with), None)).await;
+        assert!(!ids(&list(one.clone()).await).contains(&own_id), "exclusive: what the list does not name goes");
+        assert!(!state.exists(), "wipe_storage: and its storage with it");
+        call("extensions.options.set", serde_json::json!({ "exclusive": false, "wipe_storage": false })).await.unwrap();
+        call("extensions.install_folder", serde_json::json!({ "profile_ids": [one], "path": own })).await.unwrap();
+
+        // Removed by hand: no longer on record as anything.
+        call("extensions.remove", serde_json::json!({ "profile_id": one, "id": own_id })).await.unwrap();
+        let r = call("extensions.refresh", serde_json::json!({ "ext_id": own_id, "profile_ids": [one] })).await.unwrap();
+        assert_eq!(r["skipped"][0]["reason"], "not_installed");
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// A scratch home, an agent in it, one project and one profile in that
+    /// project, for the tests below. `allow_no_proxy` as given; no proxy.
+    async fn home_with_a_profile(name: &str, allow_no_proxy: bool) -> (Tidy, std::sync::Arc<super::Agent>, String, String) {
+        let home = std::env::temp_dir().join(format!("fury-{name}-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&home).ok();
+        // SAFETY: every caller holds crate::ENV, which is what makes this
+        // single-threaded.
+        unsafe { std::env::set_var("FURY_HOME", &home) };
+        let agent = super::Agent::new().await.expect("an agent in a scratch home");
+        let persona = crate::personas::all().into_iter().find(|p| p.os.name == "macOS").unwrap().id;
+        let project = Box::pin(agent.dispatch("projects.create", serde_json::json!({ "name": "with", "notes": "" })))
+            .await
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let row = serde_json::json!({
+            "id": "", "project_id": project, "name": "one", "notes": "", "tags": [], "status": "",
+            "persona_id": persona, "fp_seed": 0, "proxy": null, "proxy_id": null, "timezone": null,
+            "languages": null, "overrides": {}, "start_urls": [], "allow_no_proxy": allow_no_proxy, "last_opened_at": null,
+        });
+        let profile = Box::pin(agent.dispatch("profiles.upsert", row)).await.unwrap()["id"].as_str().unwrap().to_string();
+        (Tidy { home, agent: agent.clone() }, agent, project, profile)
+    }
+
+    /// What a test above made, removed when the test ends -- by passing or by
+    /// an assertion: the scratch home, and any `sleep` standing in for a
+    /// browser. Without it a failed run left both behind, the home under a
+    /// name the next run with the same pid would find.
+    struct Tidy {
+        home: std::path::PathBuf,
+        agent: std::sync::Arc<super::Agent>,
+    }
+
+    impl Drop for Tidy {
+        fn drop(&mut self) {
+            if let Ok(mut running) = self.agent.running.try_lock() {
+                for (_, mut entry) in running.drain() {
+                    entry.child.kill().ok();
+                    entry.child.wait().ok();
+                }
+            }
+            std::fs::remove_dir_all(&self.home).ok();
+        }
+    }
+
+    /// A proxy on this machine that takes a connection and says nothing,
+    /// until it is told to hang up -- on everybody it holds and everybody who
+    /// calls after. Nothing leaves this machine through it.
+    struct SilentProxy {
+        route: String,
+        /// One message per connection taken and held.
+        arrived: tokio::sync::mpsc::UnboundedReceiver<()>,
+        hang_up: tokio::sync::watch::Sender<bool>,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    impl SilentProxy {
+        async fn start() -> Self {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let route = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+            let (tell, arrived) = tokio::sync::mpsc::unbounded_channel();
+            let (hang_up, mut told) = tokio::sync::watch::channel(false);
+            let task = tokio::spawn(async move {
+                let mut held = Vec::new();
+                loop {
+                    tokio::select! {
+                        got = listener.accept() => {
+                            let Ok((socket, _)) = got else { break };
+                            if *told.borrow() {
+                                drop(socket);
+                            } else {
+                                held.push(socket);
+                                tell.send(()).ok();
+                            }
+                        }
+                        changed = told.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
+                            held.clear();
+                        }
+                    }
+                }
+            });
+            Self { route, arrived, hang_up, task }
+        }
+    }
+
+    impl Drop for SilentProxy {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    /// A store that does not answer, behind one profile's proxy, is that
+    /// profile's problem. While its launch is parked there, the book is read
+    /// and written by others and another profile's launch installs what its
+    /// project gives; a profile with nothing to do does not wait for the book
+    /// at all; and once the road is known to be down, the launch does not ask
+    /// along it again for each of the extensions that are left.
+    ///
+    /// No margins of time: the launch is parked until this test hangs up on
+    /// it, and the test does that only after the others have finished. If
+    /// the book were held meanwhile the others would never finish, and the
+    /// two minutes around the whole of it are for that, not for a race.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn a_store_that_does_not_answer_holds_up_nobody_else() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::Duration;
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let (tidy, agent, project, parked) = Box::pin(home_with_a_profile("extbook-lock", true)).await;
+        let home = tidy.home.clone();
+        let call = |method: &'static str, params: serde_json::Value| {
+            let agent = &agent;
+            Box::pin(async move { agent.dispatch(method, params).await })
+        };
+        let wanted = ["abcdefghijklmnopabcdefghijklmnop", "bcdefghijklmnopabcdefghijklmnopa", "cdefghijklmnopabcdefghijklmnopab"];
+        let entries: Vec<serde_json::Value> = wanted.iter().map(|id| serde_json::json!({ "kind": "store", "id": id })).collect();
+        call("extensions.project.set", serde_json::json!({ "project_id": project, "entries": entries })).await.unwrap();
+        // Another project, whose list is a folder, and a profile of it that
+        // only has to exist as a directory for a launch to fill.
+        let (other_project, other) = ("another project", "0a0a0a0a-0000-4000-8000-000000000000");
+        let folder = home.join("src-folder");
+        unpacked(&folder, "1.0");
+        call("extensions.project.set", serde_json::json!({ "project_id": other_project,
+            "entries": [{ "kind": "folder", "path": folder }] })).await.unwrap();
+
+        // Nothing to do: back at once, with the book held by somebody else.
+        {
+            let _held = super::EXT_BOOK.lock().await;
+            let idle = Box::pin(agent.apply_project_extensions("0b0b0b0b-0000-4000-8000-000000000000", Some("no such project"), None));
+            tokio::time::timeout(Duration::from_secs(60), idle)
+                .await
+                .expect("a profile with nothing to do waited for the book");
+        }
+
+        let mut proxy = SilentProxy::start().await;
+        let finished = AtomicBool::new(false);
+        let stuck = Box::pin(async {
+            // Ten minutes for the store, which this test does not wait out.
+            let not_asked = Box::pin(agent.apply_project_extensions_within(
+                &parked,
+                Some(&project),
+                Some(proxy.route.clone()),
+                Duration::from_secs(600),
+            ))
+            .await;
+            finished.store(true, Ordering::SeqCst);
+            not_asked
+        });
+        let arrived = &mut proxy.arrived;
+        let hang_up = &proxy.hang_up;
+        let others = Box::pin(async {
+            arrived.recv().await.expect("the launch never reached its proxy");
+            let got = call("extensions.project.get", serde_json::json!({ "project_id": project })).await.unwrap();
+            assert_eq!(got["entries"].as_array().unwrap().len(), 3, "{got}");
+            call("extensions.options.set", serde_json::json!({ "exclusive": false, "wipe_storage": false })).await.unwrap();
+            Box::pin(agent.apply_project_extensions(other, Some(other_project), None)).await;
+            let rows = call("extensions.list", serde_json::json!({ "profile_id": other })).await.unwrap();
+            assert_eq!(rows.as_array().unwrap().len(), 1, "another profile's launch did not get its extension: {rows}");
+            assert_eq!(rows[0]["from_project"], true);
+            assert!(!finished.load(Ordering::SeqCst), "the first launch was not waiting on the store while all that happened");
+            hang_up.send(true).unwrap();
+        });
+        let (not_asked, ()) = tokio::time::timeout(Duration::from_secs(120), async { tokio::join!(stuck, others) })
+            .await
+            .expect("the book was held while the store was being asked: nobody else got to it");
+        assert_eq!(not_asked, 2, "one extension found the road down; the other two were to wait for the next launch");
+        let rows = call("extensions.list", serde_json::json!({ "profile_id": parked })).await.unwrap();
+        assert_eq!(rows, serde_json::json!([]), "skipped, like any other failure");
+
+        // Running out of time is the same finding about the road, and says so
+        // in the reason a log line gets.
+        let never = SilentProxy::start().await;
+        let mut fetched = super::StoreFetches::default();
+        let reason = Box::pin(agent.fetch_from_store(wanted[0], Some(never.route.clone()), Some(Duration::from_millis(300)), &mut fetched))
+            .await
+            .unwrap_err();
+        assert!(reason.contains("did not answer within"), "{reason}");
+        assert!(fetched.down.contains(&Some(never.route.clone())));
+        assert_eq!(super::LAUNCH_STORE_FETCH, Duration::from_secs(45));
+    }
+
+    /// From the moment a launch begins the profile is open to every call that
+    /// asks, though it is not in `running` until its browser is up; and a
+    /// launch that fails lets go of it.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn a_profile_being_launched_is_open_to_everything_else() {
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let (tidy, agent, _project, one) = Box::pin(home_with_a_profile("ext-busy", false)).await;
+        let call = |method: &'static str, params: serde_json::Value| {
+            let agent = &agent;
+            Box::pin(async move { agent.dispatch(method, params).await })
+        };
+        let own = tidy.home.join("src-own");
+        unpacked(&own, "1.0");
+        let install = || call("extensions.install_folder", serde_json::json!({ "profile_ids": [one], "path": own }));
+        let own_id = install().await.unwrap()["extension"]["id"].as_str().unwrap().to_string();
+        let elsewhere = "0c0c0c0c-0000-4000-8000-000000000000";
+        let open = serde_json::json!([{ "id": one, "reason": "open" }]);
+
+        // What `launch` takes first and holds until it is done.
+        let launching = agent.claim(&one).expect("nobody has it yet");
+        assert!(agent.claim(&one).is_none());
+
+        unpacked(&own, "2.0");
+        assert_eq!(install().await.unwrap()["skipped"], open);
+        let r = call("extensions.refresh", serde_json::json!({ "ext_id": own_id, "profile_ids": [one] })).await.unwrap();
+        assert_eq!(r["skipped"], open, "{r}");
+        // Refused before the store is asked for anything.
+        let r = call("extensions.install_from_store", serde_json::json!({ "ext_id": own_id, "profile_ids": [one] })).await.unwrap();
+        assert_eq!(r["skipped"], open, "{r}");
+        let r = call("extensions.copy_with_state", serde_json::json!({ "from_profile_id": elsewhere, "ext_id": own_id, "profile_ids": [one] })).await.unwrap();
+        assert_eq!(r["skipped"], open, "{r}");
+        let r = call("extensions.copy_with_state", serde_json::json!({ "from_profile_id": one, "ext_id": own_id, "profile_ids": [elsewhere] })).await;
+        assert_eq!(r.unwrap_err().to_string(), "source_open");
+        assert!(call("extensions.remove", serde_json::json!({ "profile_id": one, "id": own_id })).await.is_err());
+        let again = call("profile.launch", serde_json::json!({ "id": one })).await.unwrap_err().to_string();
+        assert!(again.contains("already being opened"), "{again}");
+        let listed = crate::ext::installed(&crate::paths::extensions_dir(&one));
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].version, "1.0", "nothing was changed under the launch");
+
+        // A launch that fails -- this profile has no proxy and may not go
+        // without -- has let go by the time it answers.
+        drop(launching);
+        let refused = call("profile.launch", serde_json::json!({ "id": one })).await.unwrap_err().to_string();
+        assert!(refused.contains("no proxy"), "{refused}");
+        assert!(agent.claim(&one).is_some(), "a failed launch kept the profile");
+        assert_eq!(install().await.unwrap()["installed"], serde_json::json!([one]));
+        assert_eq!(crate::ext::installed(&crate::paths::extensions_dir(&one))[0].version, "2.0");
+    }
+
+    /// The extension calls take a profile's id into a path, and take nothing
+    /// that is not one; and installing into a profile nobody has does not
+    /// make its directory.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn extension_calls_refuse_what_is_not_a_profile() {
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let (tidy, agent, _project, one) = Box::pin(home_with_a_profile("ext-ids", true)).await;
+        let call = |method: &'static str, params: serde_json::Value| {
+            let agent = &agent;
+            Box::pin(async move { agent.dispatch(method, params).await })
+        };
+        let own = tidy.home.join("src-own");
+        unpacked(&own, "1.0");
+        let nobody = "0d0d0d0d-0000-4000-8000-000000000000";
+        let r = call("extensions.install_folder", serde_json::json!({ "profile_ids": ["../outside", nobody, one], "path": own })).await.unwrap();
+        assert_eq!(r["installed"], serde_json::json!([one]), "{r}");
+        assert_eq!(r["skipped"], serde_json::json!([
+            { "id": "../outside", "reason": "not a profile id" },
+            { "id": nobody, "reason": "no such profile" },
+        ]));
+        assert!(!crate::paths::profile_dir(nobody).exists(), "a directory was made for a profile there is not");
+        assert!(!crate::paths::profile_dir("../outside").exists());
+        let ext = r["extension"]["id"].as_str().unwrap().to_string();
+
+        let r = call("extensions.refresh", serde_json::json!({ "ext_id": ext, "profile_ids": ["../outside"] })).await.unwrap();
+        assert_eq!(r["skipped"], serde_json::json!([{ "id": "../outside", "reason": "not a profile id" }]));
+        for (method, params) in [
+            ("extensions.list", serde_json::json!({ "profile_id": "../outside" })),
+            ("extensions.remove", serde_json::json!({ "profile_id": "../outside", "id": ext })),
+        ] {
+            let err = call(method, params).await.unwrap_err().to_string();
+            assert!(err.contains("is not a profile id"), "{method}: {err}");
+        }
+    }
+
+    /// A folder's key is written down before anything is installed with it,
+    /// and a folder whose key could not be written down waits; and reading a
+    /// project's list writes nothing when there is nothing new to write.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn a_key_that_could_not_be_kept_is_not_installed_with() {
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let (tidy, agent, project, one) = Box::pin(home_with_a_profile("ext-unkept-key", true)).await;
+        let call = |method: &'static str, params: serde_json::Value| {
+            let agent = &agent;
+            Box::pin(async move { agent.dispatch(method, params).await })
+        };
+        let src = tidy.home.join("src");
+        unpacked(&src, "1.0");
+        let src = crate::extsets::canonical_folder(src.to_str().unwrap()).unwrap();
+        // A book with the list and no key for its folder: one edited by
+        // hand, or put back from a copy.
+        let book = crate::paths::extension_sources_file();
+        std::fs::create_dir_all(book.parent().unwrap()).unwrap();
+        std::fs::write(&book, serde_json::json!({ "projects": { project.as_str(): [{ "kind": "folder", "path": src }] } }).to_string()).unwrap();
+        let installed = || crate::ext::installed(&crate::paths::extensions_dir(&one));
+
+        // Book::write goes through this name; a directory there and it fails.
+        let in_the_way = book.with_extension("json.tmp");
+        std::fs::create_dir_all(&in_the_way).unwrap();
+        Box::pin(agent.apply_project_extensions(&one, Some(&project), None)).await;
+        assert!(installed().is_empty(), "installed under a key that was not kept: {:?}", installed());
+
+        std::fs::remove_dir_all(&in_the_way).unwrap();
+        Box::pin(agent.apply_project_extensions(&one, Some(&project), None)).await;
+        let now = installed();
+        assert_eq!(now.len(), 1);
+
+        // The key is on record now, so a read has nothing to write -- and
+        // does not try, with the book unwritable again.
+        std::fs::create_dir_all(&in_the_way).unwrap();
+        let got = call("extensions.project.get", serde_json::json!({ "project_id": project })).await.unwrap();
+        assert_eq!(got["entries"][0]["id"], now[0].id.as_str(), "the id shown is the id installed: {got}");
+        std::fs::remove_dir_all(&in_the_way).unwrap();
+    }
+
+    /// One folder of a project's list on a disk that is not mounted: the list
+    /// can still be edited, and an exclusive list removes nothing by hand's
+    /// doing at that launch -- nor does an extension become the project's by
+    /// having been left alone.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn an_unreadable_folder_stops_neither_an_edit_nor_removes_by_guesswork() {
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let (tidy, agent, project, one) = Box::pin(home_with_a_profile("extsets-unreadable", true)).await;
+        let home = tidy.home.clone();
+        let call = |method: &'static str, params: serde_json::Value| {
+            let agent = &agent;
+            Box::pin(async move { agent.dispatch(method, params).await })
+        };
+        let (shared, own, third) = (home.join("src-shared"), home.join("src-own"), home.join("src-third"));
+        for dir in [&shared, &own, &third] {
+            unpacked(dir, "1.0");
+        }
+        // Both by hand, and then the project's list names one of them: it was
+        // there first, so it stays the profile's own.
+        let mut by_hand = Vec::new();
+        for dir in [&shared, &own] {
+            let r = call("extensions.install_folder", serde_json::json!({ "profile_ids": [one], "path": dir })).await.unwrap();
+            by_hand.push(r["extension"]["id"].as_str().unwrap().to_string());
+        }
+        let (shared_id, own_id) = (by_hand[0].clone(), by_hand[1].clone());
+        let set = call("extensions.project.set", serde_json::json!({ "project_id": project,
+            "entries": [{ "kind": "folder", "path": shared }] })).await.unwrap();
+        let stored = set["entries"][0]["path"].as_str().unwrap().to_string();
+        call("extensions.options.set", serde_json::json!({ "exclusive": true, "wipe_storage": false })).await.unwrap();
+        let rows = |id: String| {
+            let agent = &agent;
+            Box::pin(async move { agent.dispatch("extensions.list", serde_json::json!({ "profile_id": id })).await.unwrap() })
+        };
+        let row = |rows: &serde_json::Value, id: &str| rows.as_array().unwrap().iter().find(|r| r["id"] == id).cloned();
+
+        std::fs::remove_dir_all(&shared).unwrap();
+
+        // The list is edited with the unreadable entry in it; a new entry
+        // that is not there is still refused.
+        let third_real = crate::extsets::canonical_folder(third.to_str().unwrap()).unwrap();
+        let edited = call("extensions.project.set", serde_json::json!({ "project_id": project,
+            "entries": [{ "kind": "folder", "path": stored }, { "kind": "folder", "path": third }] })).await.unwrap();
+        assert_eq!(edited["entries"].as_array().unwrap().len(), 2, "{edited}");
+        assert!(edited["entries"][0]["problem"].is_string(), "{edited}");
+        assert_eq!(edited["entries"][1]["path"], third_real.as_str());
+        let third_id = edited["entries"][1]["id"].as_str().unwrap().to_string();
+        let refused = call("extensions.project.set", serde_json::json!({ "project_id": project,
+            "entries": [{ "kind": "folder", "path": stored }, { "kind": "folder", "path": home.join("nowhere") }] })).await;
+        assert!(refused.is_err());
+
+        // The launch: the readable entry arrives, and nothing leaves.
+        Box::pin(agent.apply_project_extensions(&one, Some(&project), None)).await;
+        let now = rows(one.clone()).await;
+        assert!(row(&now, &own_id).is_some(), "exclusive removed a hand-installed extension while the list could not be read: {now}");
+        assert_eq!(row(&now, &third_id).unwrap()["from_project"], true);
+        let kept = row(&now, &shared_id).expect("an unreadable folder must not remove its extension");
+        assert_eq!(kept["from_project"], false, "left alone is not given: {now}");
+
+        // Readable again: now the list is known, and exclusive is exclusive.
+        unpacked(&shared, "1.0");
+        Box::pin(agent.apply_project_extensions(&one, Some(&project), None)).await;
+        let now = rows(one.clone()).await;
+        assert!(row(&now, &own_id).is_none(), "{now}");
+        assert_eq!(row(&now, &shared_id).unwrap()["from_project"], false);
+        assert!(row(&now, &third_id).is_some());
+    }
+
+    /// The two switches are set together or not at all, and `wipe_storage`
+    /// covers the removal a person does by hand -- but not under an open
+    /// browser.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn removing_by_hand_takes_the_storage_only_when_asked_and_closed() {
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let (tidy, agent, project, one) = Box::pin(home_with_a_profile("ext-remove", true)).await;
+        let home = tidy.home.clone();
+        let call = |method: &'static str, params: serde_json::Value| {
+            let agent = &agent;
+            Box::pin(async move { agent.dispatch(method, params).await })
+        };
+        let own = home.join("src-own");
+        unpacked(&own, "1.0");
+
+        for half in [serde_json::json!({ "exclusive": true }), serde_json::json!({ "wipe_storage": true }), serde_json::json!({})] {
+            let err = call("extensions.options.set", half.clone()).await.unwrap_err().to_string();
+            assert!(err.contains("is required"), "{half}: {err}");
+        }
+        let got = call("extensions.project.get", serde_json::json!({ "project_id": project })).await.unwrap();
+        assert_eq!(got["options"], serde_json::json!({ "exclusive": false, "wipe_storage": false }), "a refused call changed something");
+
+        let install = || call("extensions.install_folder", serde_json::json!({ "profile_ids": [one], "path": own }));
+        let own_id = install().await.unwrap()["extension"]["id"].as_str().unwrap().to_string();
+        let state = crate::paths::profile_dir(&one).join("Default/Local Extension Settings").join(&own_id);
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(state.join("000003.log"), "signed in").unwrap();
+        let installed = || !crate::ext::installed(&crate::paths::extensions_dir(&one)).is_empty();
+        let remove = || call("extensions.remove", serde_json::json!({ "profile_id": one, "id": own_id }));
+
+        // Off: the default, and the storage waits for the extension to return.
+        // Found by the id its manifest gives it, whatever its directory is
+        // called -- removing by name left it installed and forgot it.
+        let root = crate::paths::extensions_dir(&one);
+        std::fs::rename(root.join(&own_id), root.join("renamed by hand")).unwrap();
+        remove().await.unwrap();
+        assert!(!installed(), "still installed, under another name");
+        assert!(state.exists());
+
+        // On, with the browser open: the directory goes as before, the
+        // storage is the browser's to hold.
+        call("extensions.options.set", serde_json::json!({ "exclusive": false, "wipe_storage": true })).await.unwrap();
+        install().await.unwrap();
+        agent.running.lock().await.insert(one.clone(), stand_in("30", None));
+        remove().await.unwrap();
+        assert!(!installed() && state.exists(), "storage removed under an open browser");
+        if let Some(mut entry) = agent.running.lock().await.remove(&one) {
+            entry.child.kill().ok();
+            entry.child.wait().ok();
+        }
+
+        // On and closed: both go.
+        install().await.unwrap();
+        remove().await.unwrap();
+        assert!(!installed());
+        assert!(!state.exists(), "wipe_storage is on and the storage is still there");
+    }
+
+    /// A refresh asks the store along the profile's proxy or not at all: with
+    /// no proxy and no permission to go without, the answer is the one a
+    /// launch gives. Nothing is fetched here -- the refusal comes first.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn a_refresh_does_not_ask_the_store_from_this_machines_own_address() {
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let (_tidy, agent, _project, one) = Box::pin(home_with_a_profile("ext-refresh-proxy", false)).await;
+        let ext = "abcdefghijklmnopabcdefghijklmnop";
+        let dir = crate::paths::extensions_dir(&one).join(ext);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("manifest.json"), r#"{"manifest_version":3,"name":"From the store","version":"1.0"}"#).unwrap();
+        let mut book = crate::extsets::Book::load(crate::paths::extension_sources_file());
+        book.record(&one, ext, crate::extsets::Source::Store { id: ext.to_string() });
+        book.write().unwrap();
+
+        let r = Box::pin(agent.dispatch("extensions.refresh", serde_json::json!({ "ext_id": ext, "profile_ids": [one] })))
+            .await
+            .unwrap();
+        assert_eq!(r["skipped"], serde_json::json!([{ "id": one, "reason": "proxy_missing" }]), "{r}");
+        assert_eq!(r["refreshed"], serde_json::json!([]));
+
     }
 
     #[tokio::test]

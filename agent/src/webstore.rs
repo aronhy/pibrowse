@@ -33,6 +33,28 @@ pub fn crx_url(id: &str) -> String {
     )
 }
 
+/// The request never got as far as an answer: the road is at fault, not the
+/// extension, and asking for the next extension along the same road will end
+/// the same way. Found in an error with `downcast_ref`; reads as the sentence
+/// it carries.
+#[derive(Debug)]
+pub struct Unreachable(String);
+
+impl Unreachable {
+    /// For a caller that gave up waiting, which is the same finding.
+    pub fn new(why: String) -> Self {
+        Self(why)
+    }
+}
+
+impl std::fmt::Display for Unreachable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Unreachable {}
+
 /// Download the package for `id`, through `proxy_url` when there is one.
 pub async fn fetch(id: &str, proxy_url: Option<&str>) -> Result<Vec<u8>> {
     if !fury_shared::extensions::is_id(id) {
@@ -65,10 +87,10 @@ pub async fn fetch(id: &str, proxy_url: Option<&str>) -> Result<Vec<u8>> {
             // as Google's fault. Ask again for the cause in the relay's words.
             if let Some(p) = proxy_url {
                 if let Some(why) = crate::relay::explain(crate::parse_upstream(p)?, &url).await {
-                    bail!("the profile's proxy: {why}");
+                    return Err(anyhow::Error::new(Unreachable(format!("the profile's proxy: {why}"))));
                 }
             }
-            return Err(e).context("reaching the Web Store");
+            return Err(anyhow::Error::new(e).context(Unreachable("reaching the Web Store".into())));
         }
     };
     if !res.status().is_success() {

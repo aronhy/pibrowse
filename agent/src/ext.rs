@@ -145,34 +145,39 @@ pub fn id_from_key(public_key: &[u8]) -> String {
 /// `dir` is where this extension lives for this profile; it is replaced if it
 /// already exists, because installing over a half-unpacked directory is how an
 /// extension ends up with two versions of a file.
+///
+/// Replaced, not cleared and refilled: the package is unpacked beside `dir`
+/// and takes its place only when it is whole (`replace_dir`). Unpacked in
+/// place, a package that failed halfway had already cost the version that
+/// worked, and if its manifest.json had landed the half was listed as
+/// installed from then on (found in review, 11.11.2026).
 pub fn install(crx: &[u8], dir: &Path) -> Result<Installed> {
     let parsed = parse(crx)?;
 
-    if dir.exists() {
-        std::fs::remove_dir_all(dir).with_context(|| format!("clearing {}", dir.display()))?;
-    }
-    std::fs::create_dir_all(dir)?;
+    let manifest = replace_dir(dir, |stage| {
+        std::fs::create_dir_all(stage)?;
+        unzip(&crx[parsed.zip_at..], stage)?;
 
-    unzip(&crx[parsed.zip_at..], dir)?;
+        let manifest_path = stage.join("manifest.json");
+        if !manifest_path.is_file() {
+            bail!("the package has no manifest.json at its top level");
+        }
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path)?).context("reading manifest.json")?;
 
-    let manifest_path = dir.join("manifest.json");
-    if !manifest_path.is_file() {
-        bail!("the package has no manifest.json at its top level");
-    }
-    let mut manifest: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&manifest_path)?).context("reading manifest.json")?;
-
-    // The line this whole module exists for.
-    let obj = manifest
-        .as_object_mut()
-        .context("manifest.json is not an object")?;
-    obj.insert(
-        "key".into(),
-        serde_json::Value::String(
-            base64::engine::general_purpose::STANDARD.encode(&parsed.public_key),
-        ),
-    );
-    std::fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)?;
+        // The line this whole module exists for.
+        let obj = manifest
+            .as_object_mut()
+            .context("manifest.json is not an object")?;
+        obj.insert(
+            "key".into(),
+            serde_json::Value::String(
+                base64::engine::general_purpose::STANDARD.encode(&parsed.public_key),
+            ),
+        );
+        std::fs::write(&manifest_path, serde_json::to_vec_pretty(&manifest)?)?;
+        Ok(manifest)
+    })?;
 
     let name = display_name(dir, &manifest);
     let version = manifest
@@ -182,6 +187,232 @@ pub fn install(crx: &[u8], dir: &Path) -> Result<Installed> {
         .to_string();
 
     Ok(Installed { id: parsed.id, name, version, path: dir.display().to_string() })
+}
+
+/// A directory under a profile's extensions that is still being filled.
+/// Never an extension: `installed` skips the name, so a crash before the
+/// rename leaves something the browser is not handed.
+const STAGING_PREFIX: &str = ".fury-staging-";
+/// The directory a new one is replacing, for the moment between the two
+/// renames. Skipped by `installed` as well -- but if the directory it was
+/// moved from is missing, this is the only copy of an extension that worked,
+/// and `sweep_staging` puts it back.
+const ASIDE_PREFIX: &str = ".fury-replaced-";
+/// How old one of those has to be before it is taken for a dead install's
+/// rather than a live one's. An install is a copy of a few megabytes or one
+/// unpacked archive, and takes seconds; an hour is a choice far past that,
+/// not a measurement of anything.
+const STAGING_STALE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+/// `-` and sixteen hex digits, on the end of both kinds of name.
+const TAG_LEN: usize = 17;
+
+/// Fills a new directory beside `dir` with `fill`, and puts it where `dir` is
+/// only once `fill` has succeeded. Anything that fails leaves `dir` as it
+/// was: what was there is moved aside rather than removed, and moved back if
+/// the new one cannot take its place.
+///
+/// The two names carry a random tag. Named by the extension alone, two
+/// installs of one extension into one profile shared them, and each could
+/// remove the other's half-filled directory or rename it into place (found
+/// in review, 11.11.2026). The callers do not run two at once for a profile
+/// (ipc.rs, `busy`); this does not depend on it.
+fn replace_dir<T>(dir: &Path, fill: impl FnOnce(&Path) -> Result<T>) -> Result<T> {
+    let root = dir.parent().with_context(|| format!("{} has no parent", dir.display()))?;
+    let name = dir
+        .file_name()
+        .with_context(|| format!("{} has no name", dir.display()))?
+        .to_string_lossy()
+        .to_string();
+    std::fs::create_dir_all(root).with_context(|| format!("creating {}", root.display()))?;
+    sweep_staging(root, std::time::SystemTime::now());
+
+    let tag = format!("{:016x}", rand::random::<u64>());
+    let stage = root.join(format!("{STAGING_PREFIX}{name}-{tag}"));
+    let aside = root.join(format!("{ASIDE_PREFIX}{name}-{tag}"));
+    let filled = match fill(&stage) {
+        Ok(filled) => filled,
+        Err(e) => {
+            std::fs::remove_dir_all(&stage).ok();
+            return Err(e);
+        }
+    };
+
+    let swapped = (|| -> Result<()> {
+        let had = dir.exists();
+        if had {
+            std::fs::rename(dir, &aside).with_context(|| format!("moving {} aside", dir.display()))?;
+        }
+        if let Err(e) = std::fs::rename(&stage, dir) {
+            if had {
+                std::fs::rename(&aside, dir).ok();
+            }
+            return Err(e).with_context(|| format!("putting {} in place", dir.display()));
+        }
+        Ok(())
+    })();
+    if let Err(e) = swapped {
+        std::fs::remove_dir_all(&stage).ok();
+        return Err(e);
+    }
+    std::fs::remove_dir_all(&aside).ok();
+    Ok(filled)
+}
+
+/// Tidies what earlier installs into `root` left: `now` is a parameter so a
+/// test can be an hour later without waiting one.
+///
+/// A replaced directory whose original is missing is an install that died
+/// between its two renames -- the old version is nowhere else -- and it is
+/// put back, whatever its age. Everything else of ours is removed once it is
+/// stale and left alone until then: it may be another install's, still at
+/// work.
+fn sweep_staging(root: &Path, now: std::time::SystemTime) {
+    let Ok(entries) = std::fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if let Some(rest) = name.strip_prefix(ASIDE_PREFIX) {
+            // `rest` is `<directory name>-<tag>`.
+            let original = rest.len().checked_sub(TAG_LEN).and_then(|at| rest.get(..at)).filter(|n| !n.is_empty());
+            if let Some(original) = original {
+                let home = root.join(original);
+                if !home.exists() {
+                    match std::fs::rename(entry.path(), &home) {
+                        Ok(()) => tracing::warn!(extension = %home.display(), "an install was interrupted; the version it was replacing was put back"),
+                        Err(e) => tracing::warn!(extension = %home.display(), error = %e, "an interrupted install's old version could not be put back"),
+                    }
+                    continue;
+                }
+            }
+        } else if !name.starts_with(STAGING_PREFIX) {
+            continue;
+        }
+        let age = entry.metadata().and_then(|m| m.modified()).ok().and_then(|at| now.duration_since(at).ok());
+        if age.is_some_and(|age| age >= STAGING_STALE) {
+            std::fs::remove_dir_all(entry.path()).ok();
+        }
+    }
+}
+
+/// The id a folder of unpacked extension will have once installed: from the
+/// `key` its own manifest carries, or from `fallback_key` when it has none.
+pub fn folder_id(src: &Path, fallback_key: &[u8]) -> Result<String> {
+    Ok(id_from_key(&folder_key(&read_manifest(src)?, fallback_key)?))
+}
+
+fn read_manifest(dir: &Path) -> Result<serde_json::Value> {
+    let path = dir.join("manifest.json");
+    if !path.is_file() {
+        bail!("{} has no manifest.json: it is not an extension's folder", dir.display());
+    }
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path)?).context("reading manifest.json")?;
+    if !manifest.is_object() {
+        bail!("manifest.json is not an object");
+    }
+    Ok(manifest)
+}
+
+fn folder_key(manifest: &serde_json::Value, fallback_key: &[u8]) -> Result<Vec<u8>> {
+    match manifest.get("key").and_then(|v| v.as_str()) {
+        // The developer pinned it already: theirs is the id the extension's
+        // own server and its store listing know it by.
+        Some(own) => base64::engine::general_purpose::STANDARD
+            .decode(own.split_whitespace().collect::<String>())
+            .context("the manifest's own key is not base64"),
+        None => Ok(fallback_key.to_vec()),
+    }
+}
+
+/// An unpacked extension, from a folder on this machine, into `root/<id>`.
+///
+/// The same problem as a .crx with one difference: there is no package, so
+/// there is no developer key to extract. A folder with no `key` in its
+/// manifest gets its id from the path it is loaded from, which here is a
+/// different path in every profile -- the clone-is-signed-out failure at the
+/// top of this file, for every profile at once.
+///
+/// So it is given one: `fallback_key`, which the caller keeps per source
+/// folder (extsets.rs). It does not have to be an RSA key. Measured on Chrome
+/// 156, 11.11.2026: with 32 random bytes as `key` an extension loaded from two
+/// different directories had one id, the one `id_from_key` computes; with no
+/// `key` the same files had another. Nothing verifies a signature for an
+/// unpacked extension, so nothing needs the key to be able to make one.
+///
+/// The folder is copied, not linked: the profile's copy travels in its bundle
+/// and must not change under a running browser when the developer saves a
+/// file. `refresh` is how a change reaches it. `.git` and the like stay
+/// behind -- a repository's history has no business in a browser profile.
+pub fn install_folder(src: &Path, root: &Path, fallback_key: &[u8]) -> Result<Installed> {
+    let mut manifest = read_manifest(src)?;
+    let key = folder_key(&manifest, fallback_key)?;
+    let id = id_from_key(&key);
+    let dir = root.join(&id);
+
+    // Not from inside the profile's own extensions, and not into the source.
+    // The copy of an extension whose manifest carries a key is itself a folder
+    // with that key: given as `src` for the profile it sits in, `dir` is `src`,
+    // and "replace what is there" removed the source and then copied nothing
+    // -- reported as installed (found in review, 11.11.2026). Compared with
+    // links resolved, so a second spelling of the same directory does not
+    // get past.
+    std::fs::create_dir_all(root).with_context(|| format!("creating {}", root.display()))?;
+    let real_src = std::fs::canonicalize(src).with_context(|| src.display().to_string())?;
+    let real_root = std::fs::canonicalize(root).with_context(|| root.display().to_string())?;
+    if real_src.starts_with(&real_root) || real_root.starts_with(&real_src) {
+        bail!(
+            "{} and the profile's extensions at {} are inside one another: an extension is not installed from its own copy",
+            src.display(),
+            root.display()
+        );
+    }
+
+    // Copied whole beside where it will live, and only then put in place: a
+    // copy that fails halfway (a file that cannot be read, a full disk) must
+    // cost nothing, and the first version removed the working extension
+    // before it had read a byte of the new one.
+    replace_dir(&dir, |stage| {
+        copy_source(src, stage).with_context(|| format!("copying {}", src.display()))?;
+        manifest.as_object_mut().expect("checked by read_manifest").insert(
+            "key".into(),
+            serde_json::Value::String(base64::engine::general_purpose::STANDARD.encode(&key)),
+        );
+        std::fs::write(stage.join("manifest.json"), serde_json::to_vec_pretty(&manifest)?)?;
+        Ok(())
+    })?;
+
+    // Whatever else claims this id, under another name, goes, as in
+    // `copy_with_state`: two directories with one id is two
+    // `--load-extension` entries fighting over one origin. After the new one
+    // is in place, so a failure here leaves one too many and not one too few.
+    for x in installed(root).into_iter().filter(|x| x.id == id && Path::new(&x.path) != dir) {
+        std::fs::remove_dir_all(&x.path).with_context(|| format!("clearing {}", x.path))?;
+    }
+
+    let version = manifest.get("version").and_then(|v| v.as_str()).unwrap_or("0").to_string();
+    Ok(Installed { id, name: display_name(&dir, &manifest), version, path: dir.display().to_string() })
+}
+
+/// A source folder into a profile, without what only a developer's checkout
+/// has. Names beginning with a dot: version control, editor state, `.DS_Store`.
+/// Symlinks are not followed; a link out of the folder would copy whatever it
+/// points at into a profile.
+fn copy_source(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if name.to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let (from, to) = (entry.path(), dst.join(&name));
+        let meta = std::fs::symlink_metadata(&from)?;
+        if meta.is_dir() {
+            copy_source(&from, &to)?;
+        } else if meta.is_file() {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
 }
 
 /// The manifest's `name`, with an `__MSG_key__` placeholder resolved from
@@ -217,6 +448,14 @@ pub fn installed(root: &Path) -> Vec<Installed> {
     let mut dirs: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
     dirs.sort();
     for dir in dirs {
+        // Half an install is not an extension, and neither is the one being
+        // replaced; see STAGING_PREFIX and ASIDE_PREFIX.
+        if dir.file_name().is_some_and(|n| {
+            let n = n.to_string_lossy();
+            n.starts_with(STAGING_PREFIX) || n.starts_with(ASIDE_PREFIX)
+        }) {
+            continue;
+        }
         let manifest = dir.join("manifest.json");
         if !manifest.is_file() {
             continue;
@@ -273,6 +512,23 @@ fn state_dirs(ext_id: &str) -> [PathBuf; 4] {
         default.join("IndexedDB").join(format!("chrome-extension_{ext_id}_0.indexeddb.leveldb")),
         default.join("IndexedDB").join(format!("chrome-extension_{ext_id}_0.indexeddb.blob")),
     ]
+}
+
+/// Removes what extension `ext_id` has stored in a profile: the other half of
+/// taking an extension out when it is not meant to come back signed in
+/// (extsets.rs, `wipe_storage`). The browser must be closed. A directory that
+/// is not there is not an error.
+pub fn remove_state(profile: &Path, ext_id: &str) -> Result<()> {
+    if !fury_shared::extensions::is_id(ext_id) {
+        bail!("{ext_id:?} is not an extension id");
+    }
+    for rel in state_dirs(ext_id) {
+        let dir = profile.join(&rel);
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir).with_context(|| format!("clearing {}", dir.display()))?;
+        }
+    }
+    Ok(())
 }
 
 /// Copies extension `ext_id` from one profile directory to another, together
@@ -825,6 +1081,171 @@ mod tests {
         let root = scratch("nomanifest");
         let err = install(&crx, &root.join("ext")).unwrap_err().to_string();
         assert!(err.contains("manifest.json"), "{err}");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A developer's folder with no key of its own.
+    fn folder(dir: &Path, version: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join("sw.js"), format!("// {version}")).unwrap();
+        std::fs::write(
+            dir.join("manifest.json"),
+            format!(r#"{{"manifest_version":3,"name":"Local","version":"{version}"}}"#),
+        )
+        .unwrap();
+    }
+
+    /// What is in `root` under one of the two names an install uses.
+    fn ours(root: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.starts_with(STAGING_PREFIX) || n.starts_with(ASIDE_PREFIX))
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// A package that does not unpack leaves the installed version as it was,
+    /// and leaves nothing that would be listed as an extension.
+    #[test]
+    fn a_crx_that_does_not_unpack_costs_nothing() {
+        let key = b"the developer's key".to_vec();
+        let good = crx_with(&key, &stored_zip("manifest.json", br#"{"manifest_version":3,"name":"T","version":"1"}"#), 0);
+        let root = scratch("crx-halfway");
+        let dir = root.join(id_from_key(&key));
+        install(&good, &dir).unwrap();
+        std::fs::write(dir.join("kept.js"), "the version that works").unwrap();
+
+        // A manifest that lands and is then found not to be one, and an
+        // archive that is cut short.
+        let not_json = crx_with(&key, &stored_zip("manifest.json", b"{ not json"), 0);
+        let mut cut = good.clone();
+        cut.truncate(cut.len() - 30);
+        for (what, bad) in [("a manifest that is not JSON", &not_json), ("a cut archive", &cut)] {
+            assert!(install(bad, &dir).is_err(), "{what} was installed");
+            assert_eq!(std::fs::read_to_string(dir.join("kept.js")).unwrap(), "the version that works", "{what}");
+            let listed = installed(&root);
+            assert_eq!(listed.len(), 1, "{what}: {listed:?}");
+            assert_eq!(listed[0].version, "1");
+            assert!(ours(&root).is_empty(), "{what} left {:?}", ours(&root));
+        }
+        // Into a profile that has none, a failure leaves none.
+        let fresh = root.join("other").join(id_from_key(&key));
+        assert!(install(&not_json, &fresh).is_err());
+        assert!(installed(&root.join("other")).is_empty());
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// Another install's directories are not this one's to remove while they
+    /// are fresh; an hour on they are a dead install's and go -- except the
+    /// old version of an extension whose directory is missing, which is put
+    /// back.
+    #[test]
+    fn what_another_install_left_is_swept_only_when_stale_and_an_orphan_is_restored() {
+        let root = scratch("sweep");
+        let exts = root.join("exts");
+        let src = root.join("src");
+        folder(&src, "1.0");
+        let first = install_folder(&src, &exts, b"key").unwrap();
+
+        let tag = "0123456789abcdef";
+        let other = "b".repeat(32);
+        let lost = "c".repeat(32);
+        let stage = exts.join(format!("{STAGING_PREFIX}{other}-{tag}"));
+        let replaced = exts.join(format!("{ASIDE_PREFIX}{}-{tag}", first.id));
+        let orphan = exts.join(format!("{ASIDE_PREFIX}{lost}-{tag}"));
+        for dir in [&stage, &replaced] {
+            folder(dir, "0.1");
+        }
+        folder(&orphan, "0.9");
+        assert_eq!(installed(&exts).len(), 1, "neither kind of name is an extension");
+
+        // An install now: the two that may be somebody's stay, the orphan is
+        // an extension again.
+        folder(&src, "1.1");
+        install_folder(&src, &exts, b"key").unwrap();
+        assert!(stage.is_dir() && replaced.is_dir(), "a fresh directory of another install was removed");
+        assert!(!orphan.exists());
+        let listed = installed(&exts);
+        assert_eq!(listed.len(), 2, "{listed:?}");
+        assert!(listed.iter().any(|x| x.path == exts.join(&lost).display().to_string() && x.version == "0.9"));
+
+        // Short of the hour they stay; past it they go, and nothing else does.
+        let now = std::time::SystemTime::now();
+        sweep_staging(&exts, now + STAGING_STALE - std::time::Duration::from_secs(60));
+        assert_eq!(ours(&exts).len(), 2);
+        sweep_staging(&exts, now + STAGING_STALE + std::time::Duration::from_secs(60));
+        assert!(ours(&exts).is_empty(), "{:?}", ours(&exts));
+        assert_eq!(installed(&exts).len(), 2);
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// The copy in a profile carries the key, so as a source it names its own
+    /// directory as the destination. Refused, and still there afterwards --
+    /// before the check it was removed and then reported as installed.
+    #[test]
+    fn a_folder_is_not_installed_from_its_own_copy() {
+        let root = scratch("selfcopy");
+        let (src, exts) = (root.join("src"), root.join("profile/exts"));
+        folder(&src, "1.0");
+        let first = install_folder(&src, &exts, b"a key for this folder").unwrap();
+        let copy = PathBuf::from(&first.path);
+
+        let err = install_folder(&copy, &exts, b"some other key").unwrap_err().to_string();
+        assert!(err.contains("inside one another"), "{err}");
+        assert!(copy.join("sw.js").is_file() && copy.join("manifest.json").is_file(), "the copy was removed");
+        assert_eq!(installed(&exts).len(), 1);
+
+        // Both directions: the extensions directory itself, and a source that
+        // holds the profile.
+        std::fs::write(exts.join("manifest.json"), br#"{"manifest_version":3,"name":"x","version":"1"}"#).unwrap();
+        assert!(install_folder(&exts, &exts, b"k").is_err());
+        std::fs::write(root.join("manifest.json"), br#"{"manifest_version":3,"name":"x","version":"1"}"#).unwrap();
+        assert!(install_folder(&root, &exts, b"k").is_err());
+        assert!(copy.join("sw.js").is_file());
+
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A newer version that cannot be copied whole leaves the older one as it
+    /// was, and what a dead install left is neither listed nor kept.
+    #[cfg(unix)]
+    #[test]
+    fn a_copy_that_fails_halfway_costs_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = scratch("halfway");
+        let (src, exts) = (root.join("src"), root.join("exts"));
+        folder(&src, "1.0");
+        let first = install_folder(&src, &exts, b"key").unwrap();
+        let copy = PathBuf::from(&first.path);
+
+        folder(&src, "2.0");
+        let locked = src.join("locked.js");
+        std::fs::write(&locked, "x").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        // Root reads anything, and then there is nothing here to fail.
+        let can_fail = std::fs::read(&locked).is_err();
+        let result = install_folder(&src, &exts, b"key");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).unwrap();
+        if can_fail {
+            assert!(result.is_err(), "a file that cannot be read was copied");
+            assert_eq!(std::fs::read_to_string(copy.join("sw.js")).unwrap(), "// 1.0", "the working copy is gone");
+            let listed = installed(&exts);
+            assert_eq!(listed.len(), 1);
+            assert_eq!(listed[0].version, "1.0");
+        }
+        assert!(ours(&exts).is_empty(), "left behind: {:?}", ours(&exts));
+
+        // And with the file readable the new version takes the old one's place.
+        let second = install_folder(&src, &exts, b"key").unwrap();
+        assert_eq!((second.id.as_str(), second.version.as_str()), (first.id.as_str(), "2.0"));
+        assert_eq!(std::fs::read_to_string(copy.join("sw.js")).unwrap(), "// 2.0");
+        assert_eq!(installed(&exts).len(), 1);
+
         std::fs::remove_dir_all(&root).unwrap();
     }
 }
