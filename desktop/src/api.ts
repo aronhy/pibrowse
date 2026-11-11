@@ -579,6 +579,7 @@ export interface Shell {
   /** Where the agent writes its own log. Shown on the About screen: a person
    *  reporting a problem should not have to be told the path per platform. */
   log_file?: string | null;
+  profile_saves?: Record<string, { saved_at: number | null; failed: boolean }> | null;
   core_download?: {
     running: boolean;
     downloaded: number;

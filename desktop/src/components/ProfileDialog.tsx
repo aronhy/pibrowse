@@ -11,8 +11,13 @@ import { api, type DomainList, type LocalProxy, type MachineOverrides, type Pers
 import { Logins } from "./Logins";
 import { Select } from "./Select";
 import { SuggestInput } from "./SuggestInput";
+import { hasProfileChanges, makeProfileValues, snapshotProfileDraft, withDefaultPersona, type ProfileDraft, type ProfileDraftValues, type ProfileMode, type ProxyDraftCheck } from "../profileDraft";
+import { quickProfileLabels } from "../quickProfileI18n";
+import "./QuickProfile.css";
 import { Icon } from "./Icon";
 import { pickWeighted, randomFingerprintCandidates, randomizeFingerprint } from "../fingerprintRandom";
+
+export type { ProfileDraft } from "../profileDraft";
 
 // "Logins" only exists for a profile that has been saved: a login belongs to a
 // profile id, and there is no id until the first save. Showing an empty tab on
@@ -145,6 +150,9 @@ export function ProfileDialog({
   canChoose,
   onClose,
   onSaved,
+  initialDraft,
+  onKeepDraft,
+  onDiscardDraft,
 }: {
   /** Null when Profiles is unfiltered: a new local profile then belongs to
    *  no project, which is a place it can live. It can be filed later. */
@@ -165,12 +173,36 @@ export function ProfileDialog({
   canChoose: boolean;
   onClose: () => void;
   onSaved: () => void;
+  initialDraft?: ProfileDraft;
+  onKeepDraft?: (draft: ProfileDraft) => void;
+  onDiscardDraft?: () => void;
 }) {
-  const { t, say } = useI18n();
+  const { t, say, resolved } = useI18n();
+  const quickText = quickProfileLabels(resolved);
+  const defaults = makeProfileValues({
+    where: origin,
+    pickedProject: teamProjects.length === 1 ? teamProjects[0].id : "",
+    proxyMode: editing?.proxy ? "saved" : "configure",
+    name: editing?.name ?? "", tags: (editing?.tags ?? []).join(", "),
+    personaId: editing?.persona_id ?? "", proxyId: editing?.proxy?.id ?? "",
+    allowNoProxy: editing?.allow_no_proxy ?? false,
+    timezone: editing?.timezone ?? "", languages: (editing?.languages ?? []).join(", "),
+    overrides: editing?.overrides ?? {},
+    geoText: editing?.overrides?.geolocation
+      ? `${editing.overrides.geolocation.latitude}, ${editing.overrides.geolocation.longitude}` : "",
+    startUrls: (editing?.start_urls ?? []).join("\n"), notes: editing?.notes ?? "",
+    status: editing?.status ?? "", blocklists: editing?.blocklists ?? [],
+  });
+  const initial = useRef(initialDraft?.values ?? defaults).current;
+  const baseline = useRef(structuredClone(initialDraft?.baseline ?? defaults));
+  const [mode, setMode] = useState<ProfileMode>(initialDraft?.mode ?? (editing ? "advanced" : "quick"));
+  const [summaryOpen, setSummaryOpen] = useState(initialDraft?.summaryOpen ?? false);
+  const [closeGuard, setCloseGuard] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
   // The interface language, for naming languages in it.
   const lang = document.documentElement.lang || "en";
-  const [tab, setTab] = useState<Tab>("General");
-  const [where, setWhere] = useState<"local" | "team">(origin);
+  const [tab, setTab] = useState<Tab>(initialDraft?.tab ?? "General");
+  const [where, setWhere] = useState<"local" | "team">(initial.where);
   // The world this profile lives in, or will: an existing one keeps its own.
   const target = editing ? editing.origin : where;
   // A team profile has to be filed in a project: the server gives access by
@@ -180,7 +212,7 @@ export function ProfileDialog({
   // Proxy tab had already been saved to the team; a tester met it right after
   // being made admin, with the whole form filled in.
   const [pickedProject, setPickedProject] = useState(
-    teamProjects.length === 1 ? teamProjects[0].id : "",
+    initial.pickedProject,
   );
   const needsProject = !editing && target === "team" && !projectId;
   const fileIn = editing ? editing.project_id : (projectId ?? (needsProject ? pickedProject || null : null));
@@ -204,56 +236,51 @@ export function ProfileDialog({
   // right one: the first proxy anyone adds is added while making a profile, and
   // sending them elsewhere to do it loses whatever they had typed.
   const [proxyMode, setProxyMode] = useState<"configure" | "saved">(
-    editing?.proxy ? "saved" : "configure",
+    initial.proxyMode,
   );
-  const [pxKind, setPxKind] = useState("socks5");
+  const [pxKind, setPxKind] = useState(initial.pxKind);
   // What a pasted address answered on, and whether a type button was pressed
   // since — see ProxyForm, which does the same.
-  const [pxSniffed, setPxSniffed] = useState<string | null>(null);
-  const pxKindTouched = useRef(false);
-  const [pxTypedHost, setPxHost] = useState("");
-  const [pxTypedPort, setPxPort] = useState("");
+  const [pxSniffed, setPxSniffed] = useState<string | null>(initialDraft?.sniffed ?? null);
+  const pxKindTouched = useRef(initialDraft?.kindTouched ?? false);
+  const [pxTypedHost, setPxHost] = useState(initial.pxTypedHost);
+  const [pxTypedPort, setPxPort] = useState(initial.pxTypedPort);
   /** A WireGuard proxy's .conf; see ProxyForm. */
-  const [pxConf, setPxConf] = useState("");
+  const [pxConf, setPxConf] = useState(initial.pxConf);
   const pxWg = pxKind === "wireguard";
   const pxEndpoint = pxWg ? wgEndpoint(pxConf) : null;
   const pxHost = pxWg ? (pxEndpoint?.host ?? "") : pxTypedHost;
   const pxPort = pxWg ? String(pxEndpoint?.port ?? "") : pxTypedPort;
-  const [pxUser, setPxUser] = useState("");
-  const [pxPass, setPxPass] = useState("");
-  const [pxRotate, setPxRotate] = useState("");
-  const [pxChecker, setPxChecker] = useState("");
-  const [pxCheck, setPxCheck] = useState<{
-    ok: boolean; error?: string; ip?: string; country?: string;
-    city?: string; timezone?: string; ms?: number; error_code?: string | null;
-  } | null>(null);
+  const [pxUser, setPxUser] = useState(initial.pxUser);
+  const [pxPass, setPxPass] = useState(initial.pxPass);
+  const [pxRotate, setPxRotate] = useState(initial.pxRotate);
+  const [pxChecker, setPxChecker] = useState(initial.pxChecker);
+  const [pxCheck, setPxCheck] = useState<ProxyDraftCheck | null>(initialDraft?.check ?? null);
 
-  const [name, setName] = useState(editing?.name ?? "");
-  const [tags, setTags] = useState((editing?.tags ?? []).join(", "));
-  const [personaId, setPersonaId] = useState(editing?.persona_id ?? "");
+  const [name, setName] = useState(initial.name);
+  const [tags, setTags] = useState(initial.tags);
+  const [personaId, setPersonaId] = useState(initial.personaId);
   const chosenPersona = personas.find((p) => p.id === personaId);
   const randomCandidates = randomFingerprintCandidates(personas, personaId, HOST_OS);
-  const [proxyId, setProxyId] = useState(editing?.proxy?.id ?? "");
+  const [proxyId, setProxyId] = useState(initial.proxyId);
   /** Permission for THIS profile to open with none. Off unless it was already
    *  on: the refusal is the default and stays the default. */
-  const [allowNoProxy, setAllowNoProxy] = useState(editing?.allow_no_proxy ?? false);
+  const [allowNoProxy, setAllowNoProxy] = useState(initial.allowNoProxy);
   // Empty means "follow the proxy's exit", which is what the agent resolves at
   // launch. Pre-filling Europe/Berlin made every profile ever created claim
   // Berlin — including the ones going out through São Paulo — and made the
   // follow-the-exit path unreachable, because the field was never empty.
-  const [timezone, setTimezone] = useState(editing?.timezone ?? "");
-  const [languages, setLanguages] = useState((editing?.languages ?? []).join(", "));
+  const [timezone, setTimezone] = useState(initial.timezone);
+  const [languages, setLanguages] = useState(initial.languages);
   // Machine fields pinned by hand. Each key absent means "as the persona has
   // it"; the whole is validated with the persona by the preview, the save and
   // the launch alike.
-  const [overrides, setOverrides] = useState<MachineOverrides>(editing?.overrides ?? {});
+  const [overrides, setOverrides] = useState<MachineOverrides>(initial.overrides);
   const setOv = (patch: Partial<MachineOverrides>) => setOverrides((o) => compact({ ...o, ...patch }));
   // Typed as text and parsed, so a half-typed "52.5" is not thrown away while
   // it is being written. Only a whole pair reaches the overrides.
   const [geoText, setGeoText] = useState(
-    editing?.overrides?.geolocation
-      ? `${editing.overrides.geolocation.latitude}, ${editing.overrides.geolocation.longitude}`
-      : "",
+    initial.geoText,
   );
   const geoParsed = (() => {
     const m = /^\s*(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)\s*$/.exec(geoText);
@@ -269,19 +296,56 @@ export function ProfileDialog({
   const machineLocked = editing?.origin === "team" || editing?.origin === "shared";
   // From the row. Both used to start empty and be saved empty: an edit that
   // touched only the name erased the notes and the start URLs.
-  const [startUrls, setStartUrls] = useState((editing?.start_urls ?? []).join("\n"));
-  const [notes, setNotes] = useState(editing?.notes ?? "");
-  const [status, setStatus] = useState(editing?.status ?? "");
+  const [startUrls, setStartUrls] = useState(initial.startUrls);
+  const [notes, setNotes] = useState(initial.notes);
+  const [status, setStatus] = useState(initial.status);
   // Domain lists the relay applies to this profile. Local profiles only — a
   // team profile's record lives on the server, which does not carry them.
   const [lists, setLists] = useState<DomainList[]>([]);
-  const [blocklists, setBlocklists] = useState<string[]>(editing?.blocklists ?? []);
+  const [blocklists, setBlocklists] = useState<string[]>(initial.blocklists);
+
+  const draftValues: ProfileDraftValues = {
+    where, pickedProject, proxyMode, pxKind, pxTypedHost, pxTypedPort, pxConf,
+    pxUser, pxPass, pxRotate, pxChecker, name, tags, personaId, proxyId,
+    allowNoProxy, timezone, languages, overrides, geoText, startUrls, notes, status, blocklists,
+  };
+  const dirty = hasProfileChanges(draftValues, baseline.current);
+  const requestClose = () => {
+    if (busy) return;
+    if (dirty) setCloseGuard(true);
+    else {
+      onDiscardDraft?.();
+      onClose();
+    }
+  };
+  const keepDraft = () => {
+    if (busy || !onKeepDraft) return;
+    onKeepDraft(snapshotProfileDraft({ values: draftValues, baseline: baseline.current,
+      mode, tab, check: pxCheck, sniffed: pxSniffed, kindTouched: pxKindTouched.current, summaryOpen }));
+    onClose();
+  };
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const targetDialog = event.target instanceof Element ? event.target.closest('[role="dialog"]') : null;
+      if (targetDialog && targetDialog !== dialogRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (closeGuard) setCloseGuard(false);
+      else requestClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   useEffect(() => {
     void api.personas().then((p) => {
       setPersonas(p);
       const here = p.filter((x) => !foreign(x));
-      setPersonaId((current) => current || pickWeighted(here.length ? here : p) || "");
+      const defaultPersona = pickWeighted(here.length ? here : p) || "";
+      baseline.current = withDefaultPersona(baseline.current, defaultPersona);
+      setPersonaId((current) => current || defaultPersona);
     });
     void api.blocklists().then(setLists).catch(() => setLists([]));
   }, []);
@@ -432,15 +496,47 @@ export function ProfileDialog({
   );
 
   const pxUrl = () => proxyUrl(pxKind, pxHost, pxPort, pxUser, pxWg ? pxConf : pxPass);
+  const startUrlsField = (
+    <div className="field">
+      <label htmlFor="p-urls">{t("pd.startUrls")}</label>
+      <div>
+        <textarea id="p-urls" rows={mode === "quick" ? 2 : 3} value={startUrls}
+          placeholder={"https://example.com\nhttps://another.example"}
+          onChange={(e) => setStartUrls(e.target.value)} />
+        <p className="hint">{t("pd.startUrlsHint")}</p>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true">
+    <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && !closeGuard && requestClose()}>
+      <div ref={dialogRef} className={`modal profileEditor${mode === "quick" ? " quickEditor" : ""}`} role="dialog" aria-modal="true" aria-labelledby="profile-dialog-title">
         <div className="modalHead">
-          <h2>{editing ? t("pd.edit") : t("pd.new")}</h2>
+          <h2 id="profile-dialog-title">{editing ? t("pd.edit") : t("pd.new")}</h2>
         </div>
 
-        <div className="tabs" role="tablist">
+        {closeGuard ? (
+          <div className="profileCloseGuard">
+            <h3>{quickText.closeTitle}</h3>
+            <p className="hint">{quickText.closeBody}</p>
+            <p className="hint">{quickText.draftNote}</p>
+            <div className="profileCloseActions">
+              <button className="primary" autoFocus onClick={() => setCloseGuard(false)}>{quickText.continue}</button>
+              {onKeepDraft && <button title={quickText.draftNote} onClick={keepDraft}>{quickText.keep}</button>}
+              <button className="danger" onClick={() => { onDiscardDraft?.(); onClose(); }}>{quickText.discard}</button>
+            </div>
+          </div>
+        ) : <>
+        <div className="profileMode">
+          <div className="segmented">
+            <button disabled={busy} aria-pressed={mode === "quick"} onClick={() => setMode("quick")}>{quickText.quick}</button>
+            <button disabled={busy} aria-pressed={mode === "advanced"} onClick={() => setMode("advanced")}>{quickText.advanced}</button>
+          </div>
+          {mode === "quick" && <p className="hint">{quickText.hint}</p>}
+        </div>
+        {initialDraft && <p className="hint profileDraftRestored">{quickText.restored}</p>}
+
+        {mode === "advanced" && <div className="tabs" role="tablist">
           {TABS.map((tb) => (
             <button
               key={tb}
@@ -452,11 +548,11 @@ export function ProfileDialog({
               {t(TAB_KEYS[tb])}
             </button>
           ))}
-        </div>
+        </div>}
 
         <div className="modalBody">
-          <div className={tab === "Device" ? "form fill" : "form"}>
-            {tab === "General" && (
+          <div className={mode === "advanced" && tab === "Device" ? "form fill" : "form"}>
+            {(mode === "quick" || tab === "General") && (
               <>
                 {!editing && canChoose && (
                   <div className="field">
@@ -514,7 +610,7 @@ export function ProfileDialog({
                     />
                   </div>
                 </div>
-                <div className="field">
+                {mode === "advanced" && <><div className="field">
                   <label htmlFor="p-status">{t("pd.status")}</label>
                   <div>
                     <SuggestInput
@@ -539,19 +635,7 @@ export function ProfileDialog({
                     <p className="hint">{t("pd.tagsHint")}</p>
                   </div>
                 </div>
-                <div className="field">
-                  <label htmlFor="p-urls">{t("pd.startUrls")}</label>
-                  <div>
-                    <textarea
-                      id="p-urls"
-                      rows={3}
-                      value={startUrls}
-                      placeholder={"https://example.com\nhttps://another.example"}
-                      onChange={(e) => setStartUrls(e.target.value)}
-                    />
-                    <p className="hint">{t("pd.startUrlsHint")}</p>
-                  </div>
-                </div>
+                {startUrlsField}
                 {lists.length > 0 && (
                   <div className="field">
                     <label>{t("pd.domainLists")}</label>
@@ -593,10 +677,11 @@ export function ProfileDialog({
                     />
                   </div>
                 </div>
+                </>}
               </>
             )}
 
-            {tab === "Logins" && (
+            {mode === "advanced" && tab === "Logins" && (
               <div className="field">
                 <div />
                 <div>
@@ -609,7 +694,7 @@ export function ProfileDialog({
               </div>
             )}
 
-            {tab === "Proxy" && (
+            {(mode === "quick" || tab === "Proxy") && (
               <>
                 <div className="field">
                   <label>{t("pd.proxy")}</label>
@@ -769,7 +854,7 @@ export function ProfileDialog({
                       </div>
                     </div>}
 
-                    {!pxWg && <div className="field">
+                    {mode === "advanced" && <>{!pxWg && <div className="field">
                       <label htmlFor="px-rotate">{t("px.rotate")}</label>
                       <div>
                         <input
@@ -796,12 +881,15 @@ export function ProfileDialog({
                         <p className="hint">{t("px.checkerHint")}</p>
                       </div>
                     </div>
+                    </>}
                   </>
                 )}
               </>
             )}
 
-            {tab === "Device" && (
+            {mode === "quick" && startUrlsField}
+
+            {mode === "advanced" && tab === "Device" && (
               <>
                 <div className="field grow">
                   <label>{t("pd.machine")}</label>
@@ -909,7 +997,7 @@ export function ProfileDialog({
               </>
             )}
 
-            {tab === "Machine" && (
+            {mode === "advanced" && tab === "Machine" && (
               <>
                 <p className="hint" style={{ marginTop: 0 }}>{t("pd.msIntro")}</p>
                 <div className="field">
@@ -1079,7 +1167,7 @@ export function ProfileDialog({
               </>
             )}
 
-            {tab === "Advanced" && (
+            {mode === "advanced" && tab === "Advanced" && (
               <>
                 <div className="field">
                   <label htmlFor="pd-net-type">{t("pd.netType")}</label>
@@ -1158,7 +1246,7 @@ export function ProfileDialog({
           </div>
 
           <aside className="overview">
-            <h3>{t("pd.overview")}</h3>
+            <h3>{mode === "quick" ? quickText.summary : t("pd.overview")}</h3>
             {!editing && (
               <div style={{ marginBottom: "var(--s-4)" }}>
                 <button
@@ -1191,7 +1279,16 @@ export function ProfileDialog({
             )}
             {preview ? (
               <>
-                <dl className="kv">
+                {mode === "quick" && <>
+                  <div className="quickDeviceName">{chosenPersona?.os ?? preview.platform}</div>
+                  <p className="hint">{preview.platform} · {preview.screen ?? t("pd.ovScreenMonitor")}</p>
+                  <p className="hint">{quickText.following}</p>
+                  <button className="ghost quickSummaryToggle" aria-expanded={summaryOpen} aria-controls="profile-full-summary"
+                    onClick={() => setSummaryOpen((open) => !open)}>
+                    {summaryOpen ? quickText.hideSummary : quickText.showSummary}
+                  </button>
+                </>}
+                {(mode === "advanced" || summaryOpen) && <dl className="kv" id="profile-full-summary">
                   <dt>{t("pd.ovPlatform")}</dt>
                   <dd>{preview.platform}</dd>
                   <dt>{t("pd.ovUserAgent")}</dt>
@@ -1272,7 +1369,7 @@ export function ProfileDialog({
                       .filter(Boolean)
                       .join(", ") || t("pd.noiseNone")}
                   </dd>
-                </dl>
+                </dl>}
 
                 <div style={{ marginTop: "var(--s-4)" }}>
                   {problems.length === 0 ? (
@@ -1298,7 +1395,8 @@ export function ProfileDialog({
           {error && <span className="error">{error}</span>}
           {!error && needsProject && !pickedProject && <span className="hint">{t("pd.needProject")}</span>}
           <div className="spacer" />
-          <button className="ghost" onClick={onClose}>
+          {mode === "quick" && geoBad && <span className="hint">{quickText.invalid}</span>}
+          <button className="ghost" disabled={busy} onClick={requestClose}>
             {t("ui.cancel")}
           </button>
           <button
@@ -1309,6 +1407,7 @@ export function ProfileDialog({
             {busy ? t("ui.saving") : editing ? t("ui.save") : t("ui.create")}
           </button>
         </div>
+        </>}
       </div>
     </div>
   );

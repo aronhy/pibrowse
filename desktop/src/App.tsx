@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n, type Key } from "./i18n";
 import { api, ApiError, type LocalProxy, type Me, type MirrorStatus, type Profile, type Project, type Shell, type UpdateProgress, type WarmProgress, type Farm } from "./api";
 import { Login } from "./components/Login";
-import { ProfileDialog } from "./components/ProfileDialog";
+import { ProfileDialog, type ProfileDraft } from "./components/ProfileDialog";
 import { BulkProfiles } from "./components/BulkProfiles";
 import { Cookies } from "./components/Cookies";
 import { Extensions } from "./components/Extensions";
@@ -30,10 +30,14 @@ import { CsvImport } from "./components/CsvImport";
 import { AntidetectImport } from "./components/AntidetectImport";
 import { IconButton } from "./components/Icon";
 import { useTheme } from "./theme";
-import { exitSharing } from "./consistency";
+import { assess, exitSharing } from "./consistency";
 import { isSuggested, setStage as saveStage } from "./status";
 import { Select } from "./components/Select";
 import { OUR_SERVERS, versionNewer } from "./defaults";
+import { ProfileWorkspaceControls } from "./components/ProfileWorkspaceControls";
+import { defaultWorkspacePreferences, selectWorkspaceProfiles, visibleSelectionState, type ProfileFilters, type ProfileWorkspacePreferences } from "./profileWorkspace";
+import { workspaceLabels } from "./profileWorkspaceI18n";
+import { useProfileWorkspace } from "./useProfileWorkspace";
 
 /** What the browser build the agent asks for changes, for the bar that offers
  *  it. One sentence for every build told a Mac being offered 0.3.8 about a
@@ -143,10 +147,8 @@ export function App() {
     return () => clearInterval(every);
   }, []);
   const [editing, setEditing] = useState<Profile | null | undefined>(undefined);
-  const [query, setQuery] = useState("");
-  const [tag, setTag] = useState("");
-  // The stage filter (5.5): "" is every stage, "\u0000none" is no stage.
-  const [stage, setStage] = useState("");
+  // Form drafts stay in memory, including any typed proxy credentials.
+  const [profileDrafts, setProfileDrafts] = useState<Record<string, ProfileDraft>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   /** `undefined` closed, `null` making new ones, a profile means copying it. */
   const [bulk, setBulk] = useState<Profile | null | undefined>(undefined);
@@ -260,7 +262,6 @@ export function App() {
     };
   }, [shell?.agent_ready]);
   const [view, setView] = useState<View>("profiles");
-  const [openOnly, setOpenOnly] = useState(false);
   /** A line of information at the top of the window, and — when it is about a
    *  launch — which profile it is about.
    *
@@ -277,7 +278,8 @@ export function App() {
   // Applied at the root before anything renders, so the first paint is already
   // the right theme rather than a flash of the wrong one.
   useTheme();
-  const { t, say } = useI18n();
+  const { t, say, resolved } = useI18n();
+  const workspaceText = workspaceLabels(resolved);
   const { ask, dialog: askDialog } = useAsk();
 
   const [fatal, setFatal] = useState<string | null>(null);
@@ -294,13 +296,16 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
+        // A command that swaps editors would bypass the dialog's draft guard.
+        // Finish or retain the current form before opening another workflow.
+        if (editing !== undefined) return;
         e.preventDefault();
         setPaletteOpen((open) => !open);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [editing]);
 
   const local = shell?.mode === "local";
   // Where a NEW profile is made: the open project's world, else the shell's.
@@ -313,6 +318,20 @@ export function App() {
   // Local mode has nobody to sign in as. Team mode does, and until it happens
   // there is nothing to show.
   const ready = shell !== null && (local || shell.signed_in);
+  const workspaceScope = shell && (local || me)
+    ? JSON.stringify(local ? ["local"] : [shell.server_url, me!.user_id])
+    : null;
+  const { preferences: workspace, updatePreferences } = useProfileWorkspace(workspaceScope);
+  const { query, tag, stage, openOnly } = workspace.filters;
+  const updateWorkspace = (next: ProfileWorkspacePreferences) => {
+    if (JSON.stringify(next.filters) !== JSON.stringify(workspace.filters)) setSelected(new Set());
+    updatePreferences(next);
+  };
+  const updateFilters = (patch: Partial<ProfileFilters>) =>
+    updateWorkspace({ ...workspace, filters: { ...workspace.filters, ...patch } });
+  useEffect(() => {
+    setSelected(new Set());
+  }, [active?.id, active?.origin, workspaceScope]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -519,6 +538,7 @@ export function App() {
 
   const signOut = async () => {
     await api.logout();
+    setProfileDrafts({});
     setMe(null);
     setProjects([]);
     setActive(null);
@@ -567,21 +587,50 @@ export function App() {
   // a tag list allows several — and two ways to sort the same profiles is one
   // too many. Projects are the unit that carries access, so nothing was lost.
   const tags = Array.from(new Set(profiles.flatMap((p) => p.tags))).sort();
+  const tagOptions = tag && tag !== "\u0000none" && !tags.includes(tag) ? [tag, ...tags] : tags;
   // Stages in use, lower-cased so "Banned" and "banned" are one filter.
   const stages = Array.from(new Set(profiles.map((p) => (p.status ?? "").trim().toLowerCase()).filter(Boolean))).sort();
-
-  const shown = matching(profiles, query)
-    .filter(
-      (p) =>
-        tag === "" ||
-        (tag === "\u0000none" ? p.tags.length === 0 : p.tags.includes(tag)),
-    )
-    .filter((p) => stage === "" || (stage === "\u0000none" ? !p.status : (p.status ?? "").trim().toLowerCase() === stage))
-    .filter((p) => !openOnly || p.running);
+  const stageOptions = stage && stage !== "\u0000none" && !stages.includes(stage) ? [stage, ...stages] : stages;
 
   // Exit sharing over EVERY profile, not the filtered view: the question is
   // how many accounts a site sees from one address.
   const exitCounts = exitSharing(profiles, proxyList);
+  const attentionIds = new Set(profiles.filter((p) =>
+    assess(p, personaIds, exitCounts.get(p.id) ?? 0).level !== "ok" ||
+    shell.profile_saves?.[p.id]?.failed ||
+    ["limited", "banned"].includes((p.status ?? "").trim().toLowerCase()),
+  ).map((p) => p.id));
+  const runningIds = new Set(profiles.filter((p) =>
+    isOpenHere(p, { local, userId: me?.user_id, machine: shell.machine_name }),
+  ).map((p) => p.id));
+  const workspaceContext = { pinned: workspace.pinned, attentionIds, runningIds };
+  const shown = selectWorkspaceProfiles(profiles, workspace.filters, workspaceContext);
+  const defaultFilters = defaultWorkspacePreferences().filters;
+  const workspaceCounts = {
+    all: profiles.length,
+    recent: selectWorkspaceProfiles(profiles, { ...defaultFilters, quick: "recent" }, workspaceContext).length,
+    attention: attentionIds.size,
+    pinned: profiles.filter((p) => workspace.pinned.includes(p.id)).length,
+  };
+  const saveWorkspaceView = async () => {
+    const name = await ask({
+      title: workspaceText.saveViewTitle,
+      placeholder: workspaceText.saveViewName,
+      confirmLabel: workspaceText.saveViewConfirm,
+    });
+    if (!name) return;
+    const saved = { id: crypto.randomUUID(), name, filters: { ...workspace.filters }, columns: [...workspace.columns] };
+    updateWorkspace({ ...workspace, views: [...workspace.views, saved], activeViewId: saved.id });
+  };
+  const profileDraftKey = JSON.stringify([
+    workspaceScope,
+    editing ? ["edit", editing.origin, editing.id] : ["new", newOrigin, active?.id ?? null],
+  ]);
+  const clearProfileDraft = () => setProfileDrafts((current) => {
+    const next = { ...current };
+    delete next[profileDraftKey];
+    return next;
+  });
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -595,7 +644,7 @@ export function App() {
       // Everything visible, not everything that exists: a search is narrowing
       // on purpose, and selecting rows nobody can see is how bulk deletes go
       // wrong.
-      prev.size === shown.length ? new Set() : new Set(shown.map((p) => p.id)),
+      visibleSelectionState(shown, prev).all ? new Set() : new Set(shown.map((p) => p.id)),
     );
 
   const chosen = shown.filter((p) => selected.has(p.id));
@@ -1298,24 +1347,24 @@ export function App() {
               className="search"
               placeholder={t("bar.search")}
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => updateFilters({ query: e.target.value })}
             />
-            {tags.length > 0 && (
-              <Select style={{ width: "auto" }} value={tag} onChange={(e) => setTag(e.target.value)}>
+            {(tags.length > 0 || tag !== "") && (
+              <Select style={{ width: "auto" }} value={tag} onChange={(e) => updateFilters({ tag: e.target.value })}>
                 <option value="">{t("bar.allTags")}</option>
                 <option value={"\u0000none"}>{t("bar.untagged")}</option>
-                {tags.map((x) => (
+                {tagOptions.map((x) => (
                   <option key={x} value={x}>
                     {x}
                   </option>
                 ))}
               </Select>
             )}
-            {stages.length > 0 && (
-              <Select style={{ width: "auto" }} value={stage} onChange={(e) => setStage(e.target.value)}>
+            {(stages.length > 0 || stage !== "") && (
+              <Select style={{ width: "auto" }} value={stage} onChange={(e) => updateFilters({ stage: e.target.value })}>
                 <option value="">{t("bar.allStages")}</option>
                 <option value={"\u0000none"}>{t("bar.noStage")}</option>
-                {stages.map((x) => (
+                {stageOptions.map((x) => (
                   <option key={x} value={x}>
                     {isSuggested(x) ? t(`status.${x}` as never) : x} ({profiles.filter((p) => (p.status ?? "").trim().toLowerCase() === x).length})
                   </option>
@@ -1327,10 +1376,10 @@ export function App() {
                 type="checkbox"
                 style={{ width: 14, height: 14, accentColor: "var(--accent)" }}
                 checked={openOnly}
-                onChange={(e) => setOpenOnly(e.target.checked)}
+                onChange={(e) => updateFilters({ openOnly: e.target.checked })}
               />
               <span className="muted small">
-                {t("bar.openOnly", { n: profiles.filter((p) => p.running).length })}
+                {t("bar.openOnly", { n: runningIds.size })}
               </span>
             </label>
             <div className="spacer" />
@@ -1692,9 +1741,27 @@ export function App() {
         )}
 
         {view === "profiles" && (
+          <ProfileWorkspaceControls
+            preferences={workspace}
+            counts={workspaceCounts}
+            onChange={updateWorkspace}
+            onSaveView={() => void saveWorkspaceView()}
+          />
+        )}
+
+        {view === "profiles" && (
           <div className="tableWrap">
             <ProfileTable
               profiles={shown}
+              columns={workspace.columns}
+              pinned={workspace.pinned}
+              onPin={(p) => updateWorkspace({
+                ...workspace,
+                pinned: workspace.pinned.includes(p.id)
+                  ? workspace.pinned.filter((id) => id !== p.id)
+                  : [...workspace.pinned, p.id],
+              })}
+              emptyMessage={profiles.length > 0 ? workspaceText.noMatches : undefined}
               showProject={active === null}
               selected={selected}
               onToggle={toggle}
@@ -1792,6 +1859,10 @@ export function App() {
 
         {editing !== undefined && (
           <ProfileDialog
+            key={profileDraftKey}
+            initialDraft={profileDrafts[profileDraftKey]}
+            onKeepDraft={(draft) => setProfileDrafts((current) => ({ ...current, [profileDraftKey]: draft }))}
+            onDiscardDraft={clearProfileDraft}
             projectId={active?.id ?? null}
             teamProjects={projects.filter((p) => p.origin === "team")}
             editing={editing}
@@ -1799,6 +1870,7 @@ export function App() {
             canChoose={canChooseOrigin}
             onClose={() => setEditing(undefined)}
             onSaved={async () => {
+              clearProfileDraft();
               setEditing(undefined);
               await load();
               await refreshProfiles();
@@ -1861,18 +1933,6 @@ export function App() {
         )}
       </main>
     </div>
-  );
-}
-
-/** Search across the three things someone actually looks a profile up by. */
-function matching(profiles: Profile[], query: string): Profile[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return profiles;
-  return profiles.filter((p) =>
-    [p.name, p.persona_id, p.proxy?.display ?? "", ...p.tags]
-      .join(" ")
-      .toLowerCase()
-      .includes(q),
   );
 }
 

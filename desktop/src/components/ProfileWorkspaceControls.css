@@ -1,0 +1,93 @@
+.profileWorkspaceControls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+.profileQuickViews,
+.profileWorkspaceOptions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+.profileQuickView {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.profileQuickView[aria-pressed="true"] {
+  background: var(--raised);
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+.profileViewCount {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.profileWorkspaceField {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  min-width: 0;
+}
+.profileWorkspaceField > span { white-space: nowrap; flex-shrink: 0; }
+.profileWorkspaceField .selectBtn {
+  width: auto;
+  flex: 0 1 auto;
+  min-width: 142px;
+  max-width: 100%;
+}
+.profileSavedView .selectBtn { min-width: 164px; max-width: 220px; }
+.profileColumnPicker { position: relative; }
+.profileColumnPicker > summary {
+  list-style: none;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.profileColumnPicker > summary::-webkit-details-marker { display: none; }
+.profileColumnPicker > summary:hover { background: var(--hover); }
+.profileColumnPicker > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.profileColumnOptions {
+  position: absolute;
+  z-index: 8;
+  right: 0;
+  top: calc(100% + var(--s-1));
+  min-width: 170px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  padding: var(--s-2);
+  background: var(--raised);
+}
+.profileColumnOptions label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 0;
+  padding: var(--s-2);
+  font-size: 12px;
+}
+.profileColumnOptions input { width: 14px; height: 14px; margin: 0; }
+.profilePinButton {
+  flex-shrink: 0;
+  min-height: 24px;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.profilePinButton[aria-pressed="true"] { color: var(--text); border-color: var(--line-strong); }
+@media (max-width: 860px) {
+  .profileWorkspaceOptions { gap: var(--s-2) var(--s-3); }
+  .profileWorkspaceField { flex: 1 1 240px; }
+  .profileWorkspaceField .selectBtn { flex: 1 1 142px; min-width: 0; max-width: none; }
+}

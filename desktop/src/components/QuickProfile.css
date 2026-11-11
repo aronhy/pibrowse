@@ -1,0 +1,28 @@
+.profileEditor .profileMode {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-5);
+}
+.profileMode .segmented { flex-shrink: 0; }
+.profileMode p { margin: 0; }
+.profileEditor.quickEditor { width: min(820px, 94vw); }
+.profileEditor.quickEditor .modalBody { grid-template-columns: minmax(0, 1fr) 235px; }
+.profileEditor.quickEditor .form { min-width: 0; }
+.profileEditor.quickEditor .field { grid-template-columns: 98px minmax(0, 1fr); }
+.profileEditor.quickEditor .overview { padding: var(--s-4); }
+.quickDeviceName { font-weight: 600; margin-bottom: var(--s-2); }
+.quickSummaryToggle { margin: var(--s-3) 0; text-align: left; }
+.profileDraftRestored { margin: 0 var(--s-5) var(--s-2); }
+.profileCloseGuard { padding: var(--s-5); flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.profileCloseGuard h3 { margin-top: 0; }
+.profileCloseActions { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-4); }
+.profileCloseGuard .hint { max-width: 58ch; }
+@media (max-width: 700px) {
+  .profileEditor .profileMode { align-items: flex-start; flex-direction: column; }
+  .profileEditor.quickEditor .modalBody { display: block; overflow-y: auto; }
+  .profileEditor.quickEditor .form { overflow: visible; }
+  .profileEditor.quickEditor .overview { border-left: 0; border-top: 1px solid var(--line); overflow: visible; }
+  .profileEditor.quickEditor .field { grid-template-columns: 1fr; gap: var(--s-1); }
+  .profileEditor.quickEditor .modalFoot { flex-wrap: wrap; }
+}

@@ -1,73 +1,116 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api";
 import { useI18n } from "../i18n";
+import { PROXY_PARTNERS, getProxyPartnerOffer, type ProxyCoupon, type ProxyPartner } from "../proxyPartners";
+import { proxyPartnerLabels, proxyPartnerText } from "../proxyPartnerI18n";
 import { Icon, IconButton } from "./Icon";
+import "./ProxyPartners.css";
 
-/** The proxy shop Fury is partnered with, agreed 03.11.2026.
- *
- *  Said to be a partner on the card itself: Fury is open source and handed to
- *  careful people, and an advert dressed as advice would cost more trust than
- *  it earns. The codes are the part that counts — the shop ties them to the
- *  referral account, so a purchase with a code counts even when the person
- *  never followed the link. Nothing is fetched or reported: the link opens in
- *  the system browser and the codes are plain text. */
-const PROXYS_URL = "https://proxys.io/?refid=278406";
+type Labels = ReturnType<typeof proxyPartnerLabels>;
+type Offer = ReturnType<typeof getProxyPartnerOffer>;
 
-const PROXYS_CODES: { code: string; detail: "partner.fury10" | "partner.fury35" }[] = [
-  { code: "FURY10", detail: "partner.fury10" },
-  { code: "FURY35", detail: "partner.fury35" },
-];
+/** Each coupon owns its feedback and timer, including when the panel closes. */
+function CouponRow({ coupon, language, labels }: { coupon: ProxyCoupon; language: string; labels: Labels }) {
+  const [copyState, setCopyState] = useState<"idle" | "copying" | "copied" | "failed">("idle");
+  const timer = useRef<number | null>(null);
+  const mounted = useRef(true);
 
-/** The card: the shop, its two codes with a copy button each, and the link.
- *  `onHide` puts a close button on it, for the copy the proxies toolbar opens. */
-export function PartnerCard({ onHide }: { onHide?: () => void }) {
-  const { t } = useI18n();
-  const [copied, setCopied] = useState<string | null>(null);
-  const [copyFailed, setCopyFailed] = useState(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (timer.current !== null) window.clearTimeout(timer.current);
+    };
+  }, []);
 
-  const copy = async (code: string) => {
-    setCopyFailed(false);
+  const copy = async () => {
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    setCopyState("copying");
     try {
-      await navigator.clipboard.writeText(code);
-      setCopied(code);
-      window.setTimeout(() => setCopied((c) => (c === code ? null : c)), 2000);
+      await navigator.clipboard.writeText(coupon.code);
+      if (!mounted.current) return;
+      setCopyState("copied");
+      timer.current = window.setTimeout(() => {
+        setCopyState("idle");
+        timer.current = null;
+      }, 2000);
     } catch {
-      // The code is on screen and selectable, so a refusing webview leaves
-      // something to copy by hand; said rather than swallowed.
-      setCopyFailed(true);
+      if (mounted.current) setCopyState("failed");
     }
   };
 
   return (
-    <div className="partnerCard">
+    <div className="proxyProviderCoupon">
       <div className="productRow">
-        <span className="productIcon">
-          <Icon name="globe" size={18} />
-        </span>
+        <code className="mono" tabIndex={0}>{coupon.code}</code>
+        <span className="productText small">{proxyPartnerText(coupon.description, language)}</span>
+        <button className="ghost" aria-label={`${labels.copy}: ${coupon.code}`} disabled={copyState === "copying"} onClick={() => void copy()}>
+          <Icon name="copy" size={13} />
+          <span role="status" aria-live="polite">{copyState === "copied" ? labels.copied : copyState === "copying" ? labels.copying : labels.copy}</span>
+        </button>
+      </div>
+      {copyState === "failed" && <p className="proxyProviderError small" role="alert">{labels.copyFailed}</p>}
+    </div>
+  );
+}
+
+function ProviderRow({ partner, offer, language, labels }: { partner: ProxyPartner; offer: Offer; language: string; labels: Labels }) {
+  const [openFailed, setOpenFailed] = useState(false);
+  const open = async () => {
+    if (!offer.url) return;
+    setOpenFailed(false);
+    try {
+      await api.openUrl(offer.url);
+    } catch {
+      setOpenFailed(true);
+    }
+  };
+
+  return (
+    <div className="proxyProviderEntry">
+      <div className="productRow proxyProviderRow">
+        <span className="productIcon"><Icon name="globe" size={18} /></span>
         <div className="productText">
           <div className="productName">
-            proxys.io <span className="badge">{t("partner.badge")}</span>
+            {partner.name} {offer.isAffiliate && <span className="badge proxyAffiliateBadge">{labels.affiliate}</span>}
           </div>
-          <div className="muted small">{t("partner.proxysDetail")}</div>
+          <div className="muted small proxyProviderDescription">{proxyPartnerText(partner.description, language)}</div>
         </div>
-        <button className="primary" onClick={() => void api.openUrl(PROXYS_URL)}>
-          {t("partner.open")} <Icon name="external" size={13} />
+        <button className="ghost" aria-label={`${offer.isAffiliate ? labels.openAffiliate : labels.openOfficial}: ${partner.name}`} disabled={!offer.url} onClick={() => void open()}>
+          {offer.isAffiliate ? labels.openAffiliate : labels.openOfficial} <Icon name="external" size={13} />
         </button>
-        {onHide && <IconButton icon="close" label={t("partner.hide")} onClick={onHide} />}
       </div>
-      {PROXYS_CODES.map((c) => (
-        <div key={c.code} className="productRow partnerCode">
-          <code className="mono">{c.code}</code>
-          <span className="productText small">{t(c.detail)}</span>
-          <button className="ghost" onClick={() => void copy(c.code)}>
-            <Icon name="copy" size={13} /> {copied === c.code ? t("partner.copied") : t("partner.copy")}
-          </button>
-        </div>
+      {openFailed && <p className="proxyProviderError small" role="alert">{labels.openFailed}</p>}
+      {offer.coupons.map((coupon, index) => (
+        <CouponRow key={`${coupon.code}:${index}`} coupon={coupon} language={language} labels={labels} />
       ))}
-      <p className="muted small partnerNote">{copyFailed ? t("partner.copyFailed") : t("partner.note")}</p>
     </div>
+  );
+}
+
+/** A local provider list; external pages open only after the user clicks. */
+export function PartnerCard({ onHide }: { onHide?: () => void }) {
+  const { resolved } = useI18n();
+  const labels = proxyPartnerLabels(resolved);
+  const heading = useId();
+  const entries = PROXY_PARTNERS.map((partner) => ({ partner, offer: getProxyPartnerOffer(partner) }));
+  const hasAffiliate = entries.some(({ offer }) => offer.isAffiliate);
+
+  return (
+    <section className="partnerCard proxyProvidersPanel" aria-labelledby={heading}>
+      <div className="proxyProvidersHead">
+        <h3 id={heading}>{labels.title}</h3>
+        {onHide && <IconButton icon="close" label={labels.hide} onClick={onHide} />}
+      </div>
+      {entries.map(({ partner, offer }) => (
+        <ProviderRow key={partner.id} partner={partner} offer={offer} language={resolved} labels={labels} />
+      ))}
+      <p className="muted small partnerNote">
+        {hasAffiliate && <>{labels.affiliateNote} </>}{labels.note}
+      </p>
+    </section>
   );
 }

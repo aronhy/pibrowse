@@ -11,6 +11,7 @@ import { Select } from "./Select";
 import { DEFAULT_SERVER } from "../defaults";
 import { Icon, type IconName } from "./Icon";
 import { PartnerCard } from "./Partner";
+import { proxyPartnerLabels } from "../proxyPartnerI18n";
 
 const TABS = ["general", "team", "data", "about", "products", "partners"] as const;
 type Tab = (typeof TABS)[number];
@@ -54,7 +55,8 @@ export function Settings({
   initialTab?: Tab;
 }) {
   const [theme, setTheme] = useTheme();
-  const { t, language, setLanguage } = useI18n();
+  const { t, language, resolved, setLanguage } = useI18n();
+  const partnerText = proxyPartnerLabels(resolved);
   const [tab, setTab] = useState<Tab>(initialTab ?? "general");
   // Prefilled with the server this machine used last. The first screen already
   // does this, and somebody working locally never reaches the first screen --
@@ -78,7 +80,7 @@ export function Settings({
         <div className="tabs" role="tablist">
           {TABS.map((x) => (
             <button key={x} role="tab" aria-selected={tab === x} onClick={() => setTab(x)}>
-              {t(`set.tab.${x}` as never)}
+              {x === "partners" ? partnerText.title : t(`set.tab.${x}` as never)}
             </button>
           ))}
         </div>
@@ -294,8 +296,8 @@ export function Settings({
           {tab === "products" && <Products />}
           {tab === "partners" && (
             <div className="settingsGroup">
-              <h2>{t("set.tab.partners")}</h2>
-              <p>{t("partner.intro")}</p>
+              <h2>{partnerText.title}</h2>
+              <p>{partnerText.intro}</p>
               <PartnerCard />
             </div>
           )}

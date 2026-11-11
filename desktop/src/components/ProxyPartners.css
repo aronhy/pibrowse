@@ -1,0 +1,33 @@
+.proxyServicesButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.proxyProviderCount { color: var(--text-dim); font-size: 11px; }
+.proxyProvidersPanel { max-width: 680px; }
+.proxyProvidersHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border-bottom: 1px solid var(--line);
+}
+.proxyProvidersHead h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.proxyProviderEntry + .proxyProviderEntry { border-top: 1px solid var(--line); }
+.proxyProviderRow { align-items: flex-start; padding-top: var(--s-3); padding-bottom: var(--s-3); }
+.proxyProviderRow > button { flex: none; white-space: nowrap; margin-top: 2px; }
+.proxyProviderDescription { margin-top: 3px; line-height: 1.5; }
+.proxyAffiliateBadge { margin-left: var(--s-1); }
+.proxyProviderCoupon { border-top: 1px solid var(--line); }
+.proxyProviderCoupon code { flex: none; min-width: 64px; font-weight: 600; user-select: all; overflow-wrap: anywhere; }
+.proxyProviderCoupon .productRow { flex-wrap: wrap; }
+.proxyProviderCoupon .productText { min-width: 140px; }
+.proxyProviderError { margin: 0; padding: 0 var(--s-3) var(--s-2); color: var(--warn); }
+.proxyProvidersPanel .partnerNote { line-height: 1.5; }
+@media (max-width: 560px) {
+  .proxyProviderRow { flex-wrap: wrap; }
+  .proxyProviderRow > .productText { flex-basis: calc(100% - 48px); }
+  .proxyProviderRow > button { margin-left: 44px; }
+  .proxyProviderCount { display: none; }
+}

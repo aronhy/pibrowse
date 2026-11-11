@@ -9,6 +9,9 @@ import type { Me, Profile } from "../api";
 import { platformOf } from "../platform";
 import { assess } from "../consistency";
 import { isSuggested, statusHue } from "../status";
+import { visibleSelectionState, type ProfileColumn } from "../profileWorkspace";
+import { workspaceLabels } from "../profileWorkspaceI18n";
+import "./ProfileWorkspaceControls.css";
 
 /** Every row's controls follow the permissions the SERVER resolved. Hiding a
  *  button is presentation, not protection — the server refuses regardless — but
@@ -73,6 +76,10 @@ export function ProfileTable({
   onToggle,
   onToggleAll,
   showProject,
+  columns,
+  pinned,
+  onPin,
+  emptyMessage,
 }: {
   profiles: Profile[];
   me: Me | null;
@@ -109,8 +116,22 @@ export function ProfileTable({
   /** Shown when the list spans projects — inside one, the column would repeat
    *  the same value on every row. */
   showProject: boolean;
+  /** Optional columns; selection, name and actions always remain available. */
+  columns?: readonly ProfileColumn[];
+  pinned?: readonly string[];
+  onPin?: (p: Profile) => void;
+  emptyMessage?: string;
 }) {
-  const { t } = useI18n();
+  const { t, resolved } = useI18n();
+  const workspaceText = workspaceLabels(resolved);
+  const shownColumns = columns ?? ["project", "proxy", "status", "lastOpened"];
+  const projectVisible = showProject && shownColumns.includes("project");
+  const proxyVisible = shownColumns.includes("proxy");
+  const statusVisible = shownColumns.includes("status");
+  const lastOpenedVisible = shownColumns.includes("lastOpened");
+  const columnCount = 3 + Number(projectVisible) + Number(proxyVisible) + Number(statusVisible) + Number(lastOpenedVisible);
+  const pinnedIds = new Set(pinned ?? []);
+  const selection = visibleSelectionState(profiles, selected);
   // Marked whenever there IS a server and the row is not on it.
   //
   // The first rule was "only when the list holds both kinds", and it was wrong
@@ -133,6 +154,15 @@ export function ProfileTable({
   const [rowHeight, setRowHeight] = useState(58);
   const [range, setRange] = useState({ start: 0, end: WINDOW_FROM });
   const windowed = profiles.length > WINDOW_FROM;
+  const orderKey = profiles.map((p) => p.id).join("\u0000");
+  const columnKey = `${projectVisible}/${proxyVisible}/${statusVisible}/${lastOpenedVisible}`;
+  useLayoutEffect(() => {
+    // A narrowed/reordered list must not inherit an offset past its new end.
+    // Id order is stable across polls, so a routine refresh keeps the scroll.
+    const scroller = tableRef.current?.parentElement;
+    if (scroller) scroller.scrollTop = 0;
+    setRange({ start: 0, end: Math.min(profiles.length, WINDOW_FROM) });
+  }, [orderKey, columnKey]);
   useEffect(() => {
     if (!windowed) return;
     const scroller = tableRef.current?.parentElement;
@@ -140,8 +170,8 @@ export function ProfileTable({
     const update = () => {
       const top = scroller.scrollTop;
       const view = scroller.clientHeight || 600;
-      const start = Math.max(0, Math.floor(top / rowHeight) - BUFFER);
-      const end = Math.min(profiles.length, Math.ceil((top + view) / rowHeight) + BUFFER);
+      const start = Math.min(Math.max(0, profiles.length - 1), Math.max(0, Math.floor(top / rowHeight) - BUFFER));
+      const end = Math.max(start + 1, Math.min(profiles.length, Math.ceil((top + view) / rowHeight) + BUFFER));
       setRange((r) => (r.start === start && r.end === end ? r : { start, end }));
     };
     update();
@@ -152,7 +182,7 @@ export function ProfileTable({
       scroller.removeEventListener("scroll", update);
       ro.disconnect();
     };
-  }, [windowed, rowHeight, profiles.length]);
+  }, [windowed, rowHeight, profiles.length, orderKey, columnKey]);
   useLayoutEffect(() => {
     if (!windowed) return;
     // Correct the estimate from the rows actually on screen.
@@ -165,11 +195,12 @@ export function ProfileTable({
   });
 
   if (profiles.length === 0) {
-    return <p className="empty pad">{t("row.emptyProject")}</p>;
+    return <p className="empty pad">{emptyMessage ?? t("row.emptyProject")}</p>;
   }
 
-  const visible = windowed ? profiles.slice(range.start, range.end) : profiles;
-  const columns = 6 + (showProject ? 1 : 0);
+  const rangeStart = Math.min(range.start, Math.max(0, profiles.length - 1));
+  const rangeEnd = Math.max(rangeStart + 1, Math.min(profiles.length, range.end));
+  const visible = windowed ? profiles.slice(rangeStart, rangeEnd) : profiles;
 
   return (
     <table className="grid" ref={tableRef}>
@@ -178,12 +209,12 @@ export function ProfileTable({
           <th className="checkCol">
             <input
               type="checkbox"
-              aria-label="select all"
-              checked={selected.size > 0 && selected.size === profiles.length}
+              aria-label={workspaceText.selectAll}
+              checked={selection.all}
               // Neither on nor off: some rows are picked. Without this the box
               // reads as "nothing selected" while a bulk action is armed.
               ref={(el) => {
-                if (el) el.indeterminate = selected.size > 0 && selected.size < profiles.length;
+                if (el) el.indeterminate = selection.some && !selection.all;
               }}
               onChange={onToggleAll}
             />
@@ -191,17 +222,17 @@ export function ProfileTable({
           <th>{t("col.name")}</th>
           {/* Only when the list spans projects. Inside one project the column
               would repeat the same value on every row. */}
-          {showProject && <th>{t("col.project")}</th>}
-          <th>{t("col.proxy")}</th>
-          <th>{t("col.status")}</th>
-          <th>{t("col.lastOpened")}</th>
+          {projectVisible && <th>{t("col.project")}</th>}
+          {proxyVisible && <th>{t("col.proxy")}</th>}
+          {statusVisible && <th>{t("col.status")}</th>}
+          {lastOpenedVisible && <th>{t("col.lastOpened")}</th>}
           <th />
         </tr>
       </thead>
       <tbody>
-        {windowed && range.start > 0 && (
-          <tr aria-hidden="true" style={{ height: range.start * rowHeight }}>
-            <td colSpan={columns} style={{ padding: 0, border: 0 }} />
+        {windowed && rangeStart > 0 && (
+          <tr aria-hidden="true" style={{ height: rangeStart * rowHeight }}>
+            <td colSpan={columnCount} style={{ padding: 0, border: 0 }} />
           </tr>
         )}
         {visible.map((p) => {
@@ -249,6 +280,14 @@ export function ProfileTable({
                     ) : null;
                   })()}
                   {p.name}
+                  {onPin && (
+                    <button className="ghost profilePinButton" aria-pressed={pinnedIds.has(p.id)}
+                      aria-label={`${pinnedIds.has(p.id) ? workspaceText.unpinHint : workspaceText.pinHint}: ${p.name}`}
+                      title={pinnedIds.has(p.id) ? workspaceText.unpinHint : workspaceText.pinHint}
+                      onClick={() => onPin(p)}>
+                      {pinnedIds.has(p.id) ? workspaceText.unpin : workspaceText.pin}
+                    </button>
+                  )}
                   {/* Only the local ones are marked, and only when the list is
                       mixed. Connected to a server, every row without this badge
                       is the team's; on a machine with no server every row would
@@ -285,12 +324,12 @@ export function ProfileTable({
                   <div className="tags">{p.tags.map((t) => <span key={t}>{t}</span>)}</div>
                 )}
               </td>
-              {showProject && (
+              {projectVisible && (
                 <td className="muted nowrap">
                   {p.project_name ?? <span className="dim">{t("col.noProject")}</span>}
                 </td>
               )}
-              <td
+              {proxyVisible && <td
                 className={p.proxy && onNetwork ? "clickable" : undefined}
                 title={p.proxy && onNetwork ? t("net.current") : undefined}
                 onClick={() => p.proxy && onNetwork?.(p)}
@@ -331,8 +370,8 @@ export function ProfileTable({
                     {p.allow_no_proxy ? t("row.noProxyAllowed") : t("row.noProxy")}
                   </span>
                 )}
-              </td>
-              <td>
+              </td>}
+              {statusVisible && <td>
                 {/* A state, not an instruction.
                     This cell rendered `row.open` — the label on the button two
                     columns to the right — so a profile that was open said
@@ -361,8 +400,8 @@ export function ProfileTable({
                     </div>
                   );
                 })()}
-              </td>
-              <td className="muted small">
+              </td>}
+              {lastOpenedVisible && <td className="muted small">
                 {/* docs/12: the metric that matters to someone running accounts
                     is which profiles have gone stale. A profile untouched for
                     two months behaves differently from a live one. */}
@@ -376,7 +415,7 @@ export function ProfileTable({
                     {t("row.onServer", { size: formatSize(p.bundle_bytes) })}
                   </div>
                 )}
-              </td>
+              </td>}
               <td className="actions">
                 <div className="rowActions">
                 {!open && !locked && canLaunch && (
@@ -441,9 +480,9 @@ export function ProfileTable({
             </tr>
           );
         })}
-        {windowed && range.end < profiles.length && (
-          <tr aria-hidden="true" style={{ height: (profiles.length - range.end) * rowHeight }}>
-            <td colSpan={columns} style={{ padding: 0, border: 0 }} />
+        {windowed && rangeEnd < profiles.length && (
+          <tr aria-hidden="true" style={{ height: (profiles.length - rangeEnd) * rowHeight }}>
+            <td colSpan={columnCount} style={{ padding: 0, border: 0 }} />
           </tr>
         )}
       </tbody>

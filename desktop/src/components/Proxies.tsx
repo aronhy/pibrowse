@@ -11,6 +11,8 @@ import { ProxyForm, addedByMe, proxyLock } from "./ProxyForm";
 import { ProxyPaste } from "./ProxyPaste";
 import { PartnerCard } from "./Partner";
 import { proxyUrl } from "../proxyUrl";
+import { PROXY_PARTNERS } from "../proxyPartners";
+import { proxyPartnerLabels } from "../proxyPartnerI18n";
 
 /** The proxies this machine knows about.
  *
@@ -20,7 +22,8 @@ import { proxyUrl } from "../proxyUrl";
  *  the one number that matters, since several accounts behind one address is
  *  the oldest farm signal there is. */
 export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile[]; local: boolean; myEmail?: string | null }) {
-  const { t, say } = useI18n();
+  const { t, say, resolved } = useI18n();
+  const providerLabels = proxyPartnerLabels(resolved);
   const { ask, dialog } = useAsk();
   const [rows, setRows] = useState<LocalProxy[]>([]);
   const [editing, setEditing] = useState<LocalProxy | null | undefined>(undefined);
@@ -106,8 +109,9 @@ export function Proxies({ profiles, local, myEmail = null }: { profiles: Profile
         )}
         <div className="spacer" />
         {rows.length > 0 && (
-          <button className="partnerBuy" aria-expanded={shopping} onClick={() => setShopping((v) => !v)}>
-            <Icon name="tag" size={14} /> {t("partner.buy")} <span className="partnerPill">{t("partner.upTo")}</span>
+          <button className="ghost proxyServicesButton" aria-expanded={shopping} onClick={() => setShopping((v) => !v)}>
+            <Icon name="globe" size={14} /> {providerLabels.services}
+            <span className="proxyProviderCount">{providerLabels.count.replace("{n}", String(PROXY_PARTNERS.length))}</span>
           </button>
         )}
         <IconButton icon="refresh" label={t("bar.refresh")} onClick={() => void load()} />
