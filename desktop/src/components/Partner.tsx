@@ -109,7 +109,7 @@ export function PartnerCard({ onHide }: { onHide?: () => void }) {
         <ProviderRow key={partner.id} partner={partner} offer={offer} language={resolved} labels={labels} />
       ))}
       <p className="muted small partnerNote">
-        {hasAffiliate && <>{labels.affiliateNote} </>}{labels.note}
+        {hasAffiliate ? labels.affiliateNote : labels.note}
       </p>
     </section>
   );

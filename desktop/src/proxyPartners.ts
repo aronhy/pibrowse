@@ -40,9 +40,9 @@ export const PROXY_PARTNERS: readonly ProxyPartner[] = [
       coupons: [{
         code: "DGEPVL_923657",
         description: {
-          en: "Referral code; offer terms are shown at checkout.",
-          zh: "推荐码，具体优惠以结算页面为准。",
-          ru: "Реферальный код. Условия указаны при оплате.",
+          en: "Referral code",
+          zh: "推荐码",
+          ru: "Реферальный код",
         },
       }],
     },

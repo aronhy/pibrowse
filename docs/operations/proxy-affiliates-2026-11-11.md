@@ -5,7 +5,7 @@
 ## 当前接入状态
 
 - **Webshare：已激活并接入。** 使用后台“Your personal affiliate link”提供的完整地址，未改动收款资料。后台当前显示前30天按推荐客户消费额计50%，之后10%；这是佣金规则，不是客户折扣。Coupons列表为空，因此不展示任何优惠码或折扣。
-- **Proxy-Seller：KYC通过并接入。** 用户本人完成核验；Profile 显示 KYC verification passed successfully，Affiliate portal 已发放带 partner 参数的推广链接及推荐码 `DGEPVL_923657`。两者均来自本人后台。推荐码提示只说明结算时输入可取得 offer 并归因，未给出明确折扣比例；客户端仅写“具体优惠以结算页面为准”。未改动收款方式。
+- **Proxy-Seller：KYC通过并接入。** 用户本人完成核验；Profile 显示 KYC verification passed successfully，Affiliate portal 已发放带 partner 参数的推广链接及推荐码 `DGEPVL_923657`。两者均来自本人后台。推荐码提示只说明结算时输入可取得 offer 并归因，未给出明确折扣比例；客户端按用户要求仅标注“推荐码”。未改动收款方式。
 - **蜘蛛IP：使用用户提供的推广链接。** 完整保留 `https://www.zhizhuip.com/?ref=12175`，显示推广合作及统一佣金说明。产品概述依据[官网](https://www.zhizhuip.com/)和[官方使用文档](https://help.zhizhuip.com/docs/Process)列出的动态住宅、静态住宅与数据中心代理。未新增优惠码、折扣或佣金比例承诺，未操作其后台账号。
 - **Decodo／Impact：复核工单已提交。** 登录后的通知显示 marketplace application declined，尚未取得品牌追踪链接，保持官网入口。已将 `pibrowse.dev` 添加为媒体资源并验证 Connected。用户明确授权发送后，已提交市场准入复核工单 **920738**；详情页显示 **Open** 及“Ticket created successfully”。工单说明官网、开源地址及可选客户端推广位置，询问缺失资料和 Decodo 直接邀请可能性。工单提交不等于准入或品牌合作获批。
 
@@ -14,6 +14,7 @@
 - `site/pibrowse/index.html` 仅增加公开 `impact-site-verification` meta，无跟踪脚本。部署前确认线上主页与本地文件除该标签外完全一致。
 - 已通过现有 Wrangler 配置部署至 `https://pibrowse.dev/`，版本 `c8da6c69-5ec2-4764-a5d3-b60f57ddfe4d`；公开页面回读包含该标签，Impact 媒体资源界面显示 Website `pibrowse.dev` Connected。
 - 客户端源码已使用三家自有推广链接，目录共四家服务商；隔离预览已逐一点击确认完整归因参数，蜘蛛IP点击目标与用户提供的URL完全一致，显示三处推广合作及统一佣金披露。Proxy-Seller 推荐码显示及复制反馈已检查；未独立验证系统剪贴板内容。
+- 按用户后续要求，底部完整替换为“通过分销维持开发的费用以及项目更新。”，不再拼接原外部浏览器及配置说明；推荐码去掉结算页面提示。英文、俄文同步调整，隔离预览已确认中文全文精确匹配。
 - 蜘蛛IP加入后，从待提交的 Git 暂存内容导出独立客户端目录，28 项测试、TypeScript 检查及 Vite 构建通过。现有大包警告仍在；独立配置复审通过。未打包、安装或发布新的桌面版本，未完成真实商家订单归因与到账验收。
 
 ### Webshare 渠道核对
