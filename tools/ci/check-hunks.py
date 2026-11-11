@@ -31,7 +31,10 @@ def main():
             j = i + 1
             while j < len(lines) and not lines[j].startswith(("@@", "diff --git")):
                 c = lines[j][:1]
-                if c == "+":
+                if lines[j] == r"\ No newline at end of file":
+                    # Metadata for the preceding line, not a hunk line.
+                    pass
+                elif c == "+":
                     new += 1
                 elif c == "-":
                     old += 1

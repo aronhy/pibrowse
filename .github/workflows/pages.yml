@@ -3,7 +3,9 @@
 # install, no terminal. docs/16, 3.4: the catalogue is limited by access to
 # machines, and every step between a volunteer and the file costs volunteers.
 #
-# Enable once in the repository: Settings → Pages → Source: GitHub Actions.
+# This optional probe is separate from pibrowse.dev (Cloudflare Workers).
+# In a fork, enable Pages with Source: GitHub Actions, then set the repository
+# variable ENABLE_PROBE_PAGES=true. Manual dispatch is an explicit opt-in too.
 name: pages
 
 on:
@@ -28,6 +30,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.repository == 'furyteamtop/fury-antidetect-browser' || vars.ENABLE_PROBE_PAGES == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

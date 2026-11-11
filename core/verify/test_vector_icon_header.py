@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
 """Exercise 0909 against a scratch copy of the actual Chromium producer.
 
 Set FURY_CHROMIUM_SRC to the owning checkout. No source/cache/generated file in
