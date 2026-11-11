@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type LocalProxy } from "../api";
 import { Icon } from "./Icon";
 import { NetworkReport } from "./NetworkReport";
 import { useI18n } from "../i18n";
-import { spreadPastedProxy } from "../proxyLine";
+import { proxyLineReader, spreadPastedProxy } from "../proxyLine";
+import { proxyQuickLabels } from "../proxyQuickI18n";
 import { proxyUrl, wgEndpoint } from "../proxyUrl";
 import { WireGuardConf } from "./WireGuardConf";
 
@@ -49,7 +50,8 @@ export function ProxyForm({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { t, say } = useI18n();
+  const { t, say, resolved } = useI18n();
+  const quick = proxyQuickLabels(resolved);
   const locked = editing ? proxyLock(editing, myEmail, t) : null;
   const [name, setName] = useState(editing?.name ?? "");
   const [kind, setKind] = useState(editing?.kind ?? "socks5");
@@ -82,6 +84,49 @@ export function ProxyForm({
   const [diagnosing, setDiagnosing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /** The whole proxy on one line, above the fields it fills.
+   *
+   *  The same parser as a paste into the address box and as the list import,
+   *  so a line reads one way everywhere. Unlike that paste, this box is for
+   *  nothing else, so it is read as it is typed: every field the line can
+   *  carry is set from it, and one it does not carry is emptied, so the form
+   *  below is always what this line says. */
+  const [line, setLine] = useState("");
+  const [lineRead, setLineRead] = useState<{ shape: string } | "bad" | null>(null);
+  // The reader the address box's paste uses (proxyLine.ts). Unlike that paste,
+  // this box is for nothing else, so it is read as it is typed: every field the
+  // line can carry is set from it, one it does not carry is emptied, and the
+  // address is asked for its protocol once the typing has stopped.
+  const reader = useMemo(() => proxyLineReader((p) => {
+    if (!p) {
+      setLineRead("bad");
+      return;
+    }
+    setLineRead({ shape: p.shape ?? "" });
+    kindTouched.current = false;
+    setSniffed(null);
+    setHost(p.host);
+    setPort(p.port);
+    setUser(p.username ?? "");
+    setPass(p.password ?? "");
+    if (p.kind) setKind(p.kind as (typeof KINDS)[number]);
+  }, (k) => {
+    if (kindTouched.current) return;
+    setKind(k);
+    setSniffed(k);
+  }, 700), []);
+  useEffect(() => reader.cancel, [reader]);
+  const readLine = (text: string) => {
+    setLine(text);
+    const one = text.split("\n").map((l) => l.trim()).find((l) => l !== "") ?? "";
+    if (!one) {
+      reader.cancel();
+      setLineRead(null);
+      return;
+    }
+    reader.read(one);
+  };
 
   const complete = host.trim() !== "" && Number(port) > 0;
   /** The address as typed. `k` is passed explicitly when a check follows a
@@ -119,6 +164,24 @@ export function ProxyForm({
         {/* Locked: the fields still show the proxy and the check still runs,
             but nothing reads as editable that Save would only refuse. */}
         <div className={locked ? "form locked" : "form"} style={{ paddingTop: "var(--s-5)" }}>
+          {!locked && !wg && (
+            <div className="field">
+              <label htmlFor="f-line">{quick.label}</label>
+              <div>
+                <input id="f-line" value={line} autoFocus={!editing} spellCheck={false} autoComplete="off"
+                  className="mono"
+                  placeholder="1.2.3.4:8080:user:pass  ·  socks5://user:pass@host:1080"
+                  onChange={(e) => readLine(e.target.value)} />
+                <p className={lineRead === "bad" ? "error" : "hint"}>
+                  {lineRead === null
+                    ? quick.hint
+                    : lineRead === "bad"
+                      ? quick.bad
+                      : quick.readAs.replace("{shape}", t(`pp.shape.${lineRead.shape}` as never))}
+                </p>
+              </div>
+            </div>
+          )}
           <div className="field">
             <label>{t("px.type")}</label>
             <div className="segmented">
@@ -138,7 +201,7 @@ export function ProxyForm({
               {wg && <WireGuardConf id="f-conf" value={conf} onChange={setConf} readOnly={locked !== null} />}
               <div className="row" style={wg ? { marginTop: "var(--s-2)" } : undefined}>
                 {!wg && <>
-                <input id="f-host" value={host} autoFocus={!locked} readOnly={locked !== null} placeholder="exit.provider.net"
+                <input id="f-host" value={host} autoFocus={!locked && !!editing} readOnly={locked !== null} placeholder="exit.provider.net"
                   onChange={(e) => setHost(e.target.value)}
                   onPaste={spreadPastedProxy((p) => {
                     kindTouched.current = false;
