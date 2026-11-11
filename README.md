@@ -25,6 +25,9 @@ teams and is still in development.
 
 ## Getting started
 
+macOS (Apple Silicon): [PiBrowse 0.5.4 preview](https://github.com/aronhy/pibrowse/releases/tag/v0.5.4).
+This first Mac build is ad-hoc signed and not notarized by Apple.
+
 - [Installation and build notes](docs/15-install.md)
 - [Team self-hosting guide](docs/13-self-hosting.md)
 

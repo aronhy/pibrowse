@@ -46,7 +46,7 @@ export function Sidebar({
   const [menu, setMenu] = useState<string | null>(null);
   return (
     <aside className="sidebar">
-      <div className="brand">Fury</div>
+      <div className="brand">PiBrowse</div>
 
       <button className="primary newProfile" onClick={onNewProfile}>
         {t("bar.newProfile")}

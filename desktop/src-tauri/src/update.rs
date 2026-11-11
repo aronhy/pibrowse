@@ -32,7 +32,7 @@ use tauri_plugin_updater::UpdaterExt;
 // that sounds right would have told every user "nothing has been published"
 // while two releases sat on the page. Measured 16.08.2026, the day the second
 // one went up. The list is newest-first, so the first entry is the answer.
-const RELEASES: &str = "https://api.github.com/repos/furyteamtop/fury-antidetect-browser/releases?per_page=5";
+const RELEASES: &str = "https://api.github.com/repos/aronhy/pibrowse/releases?per_page=5";
 
 #[derive(Serialize)]
 pub struct UpdateCheck {
@@ -117,7 +117,7 @@ pub async fn check_update(state: tauri::State<'_, crate::commands::AppState>) ->
         .get(RELEASES)
         // GitHub refuses anonymous requests without one, and a version in it
         // makes a support question answerable from the server's own logs.
-        .header("User-Agent", format!("Fury/{}", current()))
+        .header("User-Agent", format!("PiBrowse/{}", current()))
         .header("Accept", "application/vnd.github+json")
         .send()
         .await;
@@ -191,6 +191,18 @@ pub async fn check_update(state: tauri::State<'_, crate::commands::AppState>) ->
     })
 }
 
+fn require_update_signing_key(updater: Option<&serde_json::Value>) -> Result<(), crate::commands::ApiErr> {
+    let configured = updater
+        .and_then(|config| config.get("pubkey"))
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|key| !key.trim().is_empty());
+    if configured {
+        Ok(())
+    } else {
+        Err(coded("no_signed_update", "this build uses manual downloads because no updater signing key is configured"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -223,6 +235,32 @@ mod tests {
     #[test]
     fn nonsense_does_not_announce_an_update() {
         assert!(!newer("banana", "0.0.1"));
+    }
+
+    #[test]
+    fn no_signing_key_selects_manual_download_fallback() {
+        let configs = [
+            serde_json::json!({}),
+            serde_json::json!({ "pubkey": null }),
+            serde_json::json!({ "pubkey": "" }),
+            serde_json::json!({ "pubkey": " \n\t" }),
+            serde_json::json!({ "pubkey": 123 }),
+            serde_json::json!({ "pubkey": "", "endpoints": ["https://example.invalid/latest.json"] }),
+        ];
+        for config in &configs {
+            let error = require_update_signing_key(Some(config)).unwrap_err();
+            assert_eq!(error.code.as_deref(), Some("no_signed_update"));
+            assert!(!error.message.is_empty());
+        }
+        let error = require_update_signing_key(None).unwrap_err();
+        assert_eq!(error.code.as_deref(), Some("no_signed_update"));
+    }
+
+    #[test]
+    fn configured_signing_key_preserves_signed_updater_path() {
+        // Presence only: Tauri still parses the key and verifies the signature.
+        let config = serde_json::json!({ "pubkey": "configured-public-key" });
+        assert!(require_update_signing_key(Some(&config)).is_ok());
     }
 }
 
@@ -335,6 +373,11 @@ pub async fn install_update(app: tauri::AppHandle) -> Result<(), crate::commands
 }
 
 async fn install(app: &tauri::AppHandle) -> Result<(), crate::commands::ApiErr> {
+    // A fork without its own updater key uses the existing download fallback.
+    // Check the runtime config before contacting the agent or reading the test
+    // feed override: a different endpoint must never bypass this requirement.
+    require_update_signing_key(app.config().plugins.0.get("updater"))?;
+
     if let Ok(mut p) = PROGRESS.lock() {
         *p = InstallProgress { stage: "checking", ..Default::default() };
     }

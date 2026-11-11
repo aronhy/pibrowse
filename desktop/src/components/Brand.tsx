@@ -14,7 +14,7 @@ export function Brand({ version }: { version?: string }) {
   const { t } = useI18n();
   return (
     <>
-      <h1>Fury</h1>
+      <h1>PiBrowse</h1>
       {version && <p className="loginVersion">{t("auth.version", { version })}</p>}
     </>
   );
