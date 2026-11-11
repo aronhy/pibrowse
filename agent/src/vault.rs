@@ -189,6 +189,17 @@ impl Vault {
 }
 
 fn load_or_create() -> Option<[u8; 32]> {
+    // A test build never reaches the keychain. `for_tests` above was meant to
+    // see to that, and does for a test that builds its own vault; one that
+    // starts a whole agent (`Agent::new`) came through here instead. On macOS
+    // permission belongs to the binary's signature, and every rebuild of the
+    // test binary is a new signature: a password dialog per change to the
+    // code, "Always allow" notwithstanding, and an entry left in the keychain
+    // of whoever ran the suite (found on a contributor's Mac, 11.11.2026).
+    if cfg!(test) {
+        return Some([0x5a; 32]);
+    }
+
     // Logged before the call, not after: on a signature the keychain does not
     // recognise this blocks until a dialog is answered, and the log is the only
     // place that says why.
