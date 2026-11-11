@@ -4,6 +4,7 @@
   "version": "0.5.3",
   "type": "module",
   "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.*",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",

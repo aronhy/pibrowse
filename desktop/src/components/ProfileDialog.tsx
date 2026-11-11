@@ -11,6 +11,8 @@ import { api, type DomainList, type LocalProxy, type MachineOverrides, type Pers
 import { Logins } from "./Logins";
 import { Select } from "./Select";
 import { SuggestInput } from "./SuggestInput";
+import { Icon } from "./Icon";
+import { pickWeighted, randomFingerprintCandidates, randomizeFingerprint } from "../fingerprintRandom";
 
 // "Logins" only exists for a profile that has been saved: a login belongs to a
 // profile id, and there is no id until the first save. Showing an empty tab on
@@ -135,18 +137,6 @@ const HOST_OS = hostOs();
 const osOf = (p: Persona) => p.os.split(" ")[0];
 const foreign = (p: Persona) => HOST_OS !== null && osOf(p) !== HOST_OS;
 
-function pickWeighted(list: Persona[]): string | undefined {
-  if (list.length === 0) return undefined;
-  const total = list.reduce((sum, p) => sum + (p.weight || 0), 0);
-  if (total <= 0) return list[0]?.id;
-  let cursor = Math.random() * total;
-  for (const p of list) {
-    cursor -= p.weight || 0;
-    if (cursor < 0) return p.id;
-  }
-  return list[list.length - 1]?.id;
-}
-
 export function ProfileDialog({
   projectId,
   teamProjects,
@@ -202,6 +192,7 @@ export function ProfileDialog({
   const selectedCard = useRef<HTMLButtonElement | null>(null);
   const [proxies, setProxies] = useState<LocalProxy[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Two clicks, not one: the first shows what a new seed costs, the second
@@ -241,6 +232,7 @@ export function ProfileDialog({
   const [tags, setTags] = useState((editing?.tags ?? []).join(", "));
   const [personaId, setPersonaId] = useState(editing?.persona_id ?? "");
   const chosenPersona = personas.find((p) => p.id === personaId);
+  const randomCandidates = randomFingerprintCandidates(personas, personaId, HOST_OS);
   const [proxyId, setProxyId] = useState(editing?.proxy?.id ?? "");
   /** Permission for THIS profile to open with none. Off unless it was already
    *  on: the refusal is the default and stays the default. */
@@ -305,6 +297,7 @@ export function ProfileDialog({
   useEffect(() => {
     if (!personaId) return;
     let cancelled = false;
+    setPreviewBusy(true);
     void api
       .preview({
         persona_id: personaId,
@@ -318,7 +311,8 @@ export function ProfileDialog({
         overrides,
       })
       .then((p) => !cancelled && setPreview(p))
-      .catch(() => !cancelled && setPreview(null));
+      .catch(() => !cancelled && setPreview(null))
+      .finally(() => !cancelled && setPreviewBusy(false));
     return () => {
       cancelled = true;
     };
@@ -1165,6 +1159,29 @@ export function ProfileDialog({
 
           <aside className="overview">
             <h3>{t("pd.overview")}</h3>
+            {!editing && (
+              <div style={{ marginBottom: "var(--s-4)" }}>
+                <button
+                  type="button"
+                  className="row"
+                  disabled={busy || previewBusy || randomCandidates.length === 0}
+                  title={t(randomCandidates.length ? "pd.randomFingerprintHint" : "pd.randomFingerprintUnavailable")}
+                  onClick={() => {
+                    const next = randomizeFingerprint(personas, personaId, HOST_OS, overrides);
+                    if (!next) return;
+                    setPreview(null);
+                    setPreviewBusy(true);
+                    setPersonaId(next.personaId);
+                    setOverrides(next.overrides);
+                  }}
+                >
+                  <Icon name="refresh" /> {t("pd.randomFingerprint")}
+                </button>
+                {randomCandidates.length === 0 && !previewBusy && (
+                  <p className="hint">{t("pd.randomFingerprintUnavailable")}</p>
+                )}
+              </div>
+            )}
             {/* Here rather than under the machine list: the list scrolls and this
                 column is beside every tab, so the warning cannot scroll away. */}
             {chosenPersona && foreign(chosenPersona) && (
@@ -1272,7 +1289,7 @@ export function ProfileDialog({
                 </div>
               </>
             ) : (
-              <p className="muted small">{t("pd.pickMachine")}</p>
+              <p className="muted small" role="status">{t(previewBusy ? "aud.loading" : "pd.pickMachine")}</p>
             )}
           </aside>
         </div>
@@ -1286,7 +1303,7 @@ export function ProfileDialog({
           </button>
           <button
             className="primary"
-            disabled={busy || !personaId || problems.length > 0 || geoBad || (needsProxy && !hasProxy) || (needsProject && !pickedProject)}
+            disabled={busy || previewBusy || !preview || !personaId || problems.length > 0 || geoBad || (needsProxy && !hasProxy) || (needsProject && !pickedProject)}
             onClick={save}
           >
             {busy ? t("ui.saving") : editing ? t("ui.save") : t("ui.create")}

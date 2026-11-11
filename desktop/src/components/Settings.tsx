@@ -496,24 +496,10 @@ function About({ shell }: { shell: Shell }) {
       </div>
 
       <div className="settingsGroup">
-        <h2>{t("about.author")}</h2>
+        <h2>{t("about.source")}</h2>
         <dl className="kv">
           <dt>{t("about.madeBy")}</dt>
-          <dd>Bogdan Shapovalov</dd>
-          <dt>{t("about.contact")}</dt>
-          <dd>
-            <a
-              href="https://t.me/shapovalovbogdan"
-              target="_blank"
-              rel="noreferrer"
-              onClick={(e) => {
-                e.preventDefault();
-                void api.openUrl("https://t.me/shapovalovbogdan");
-              }}
-            >
-              @shapovalovbogdan
-            </a>
-          </dd>
+          <dd>Aron</dd>
           <dt>{t("about.source")}</dt>
           <dd>
             {/* target="_blank" alone does nothing here, and this link was proof
@@ -522,15 +508,15 @@ function About({ shell }: { shell: Shell }) {
                 above -- the href stays for the address on hover and for a
                 right-click copy, and the click is handed to the system. */}
             <a
-              href="https://github.com/furyteamtop/fury-antidetect-browser"
+              href="https://github.com/aronhy/pibrowse"
               target="_blank"
               rel="noreferrer"
               onClick={(e) => {
                 e.preventDefault();
-                void api.openUrl("https://github.com/furyteamtop/fury-antidetect-browser");
+                void api.openUrl("https://github.com/aronhy/pibrowse");
               }}
             >
-              github.com/furyteamtop/fury-antidetect-browser
+              github.com/aronhy/pibrowse
             </a>
           </dd>
         </dl>
