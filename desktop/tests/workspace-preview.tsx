@@ -267,6 +267,36 @@ const stubs = {
     if (shell.profile_saves) delete shell.profile_saves[id];
     return { id };
   },
+  templates: async () => [],
+  importProxies: async (text: string) => {
+    const saved: { id: string; line: number; host: string; port: number; shape: string }[] = [];
+    const rejected: { line: number; error: string; code?: string }[] = [];
+    text.split("\n").forEach((raw, index) => {
+      const line = raw.trim();
+      if (!line || line.startsWith("#") || line.startsWith("//")) return;
+      const parsed = parseProxyLine(line);
+      if (!parsed) { rejected.push({ line: index + 1, error: "not a proxy line" }); return; }
+      const id = `fixture-proxy-pasted-${proxies.length + 1}`;
+      proxies.push({ id, name: `${parsed.host}:${parsed.port}`, kind: parsed.kind, host: parsed.host, port: parsed.port, username: parsed.username, password: parsed.password, last_country: null, last_ip: null, rotate_url: null, checker_url: null });
+      saved.push({ id, line: index + 1, host: parsed.host, port: parsed.port, shape: parsed.shape });
+    });
+    return { saved, rejected };
+  },
+  createProfiles: async (count: number, namePattern: string, template: unknown, _origin?: Profile["origin"], more: { start?: number; proxyIds?: string[] } = {}) => {
+    const payload = template as Partial<Profile> & { proxy?: { id?: string } | null };
+    const created: string[] = [];
+    for (let k = 0; k < count; k += 1) {
+      const id = `fixture-batch-${rows.length + 1}`;
+      rows.push(profile(id, namePattern.replace("{n}", String((more.start ?? 1) + k)), {
+        project_id: payload.project_id ?? null,
+        project_name: payload.project_id ? projectNames.get(payload.project_id) ?? null : null,
+        tags: payload.tags ?? [],
+        proxy: proxySummary(more.proxyIds?.[k] ?? payload.proxy?.id),
+      }));
+      created.push(id);
+    }
+    return { created, failed: [] };
+  },
   launch: async (id: string) => {
     const row = rows.find((p) => p.id === id);
     if (row) { row.running = true; row.last_opened_at = new Date().toISOString(); }

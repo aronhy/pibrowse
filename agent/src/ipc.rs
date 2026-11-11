@@ -2259,13 +2259,31 @@ impl Agent {
                 // by how common each is" — see catalogue::pick_weighted_on.
                 let pick_persona = template.persona_id.trim().is_empty();
 
+                // Where the numbering begins. A second batch into a list that
+                // already holds "Shop 1" to "Shop 20" starts at 21 rather than
+                // making twenty more of the same names.
+                let start = params.get("start").and_then(|v| v.as_u64()).unwrap_or(1).max(1);
+                // One proxy per profile, in order: the first id goes to the
+                // first profile. A profile past the end of the list keeps the
+                // template's proxy (or none) -- handing the list round again
+                // would put two accounts behind one exit without saying so.
+                let proxy_ids: Vec<String> = params
+                    .get("proxy_ids")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                    .unwrap_or_default();
+
                 let mut made = Vec::new();
                 let mut failed = Vec::new();
-                for i in 1..=count {
+                for (k, i) in (start..start + count).enumerate() {
                     let mut p = template.clone();
                     p.id = String::new();
                     p.fp_seed = 0;
                     p.name = pattern.replace("{n}", &i.to_string());
+                    if let Some(id) = proxy_ids.get(k).filter(|id| !id.is_empty()) {
+                        p.proxy = None;
+                        p.proxy_id = Some(id.clone());
+                    }
                     if pick_persona {
                         p.persona_id = fury_shared::catalogue::pick_weighted_on(
                             rand::random(),
@@ -5522,6 +5540,48 @@ mod exit_check_tests {
         assert!(reason.contains("did not answer within"), "{reason}");
         assert!(fetched.down.contains(&Some(never.route.clone())));
         assert_eq!(super::LAUNCH_STORE_FETCH, Duration::from_secs(45));
+    }
+
+    /// A batch numbers from where it is told to and hands a pasted list of
+    /// proxies out one each, in order; a profile past the end of the list has
+    /// none rather than a second turn at somebody else's.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn a_batch_starts_where_asked_and_takes_its_proxies_in_order() {
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let (tidy, agent, project, _one) = Box::pin(home_with_a_profile("batch-proxies", false)).await;
+        let saved = Box::pin(agent.dispatch(
+            "proxies.importMany",
+            serde_json::json!({ "text": "10.0.0.1:8080:u:p\n10.0.0.2:8080:u:p", "name_prefix": "" }),
+        ))
+        .await
+        .unwrap();
+        let ids: Vec<String> =
+            saved["saved"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap().to_string()).collect();
+        assert_eq!(ids.len(), 2);
+
+        let template = serde_json::json!({
+            "id": "", "project_id": project, "name": "", "notes": "", "tags": [], "status": "",
+            "persona_id": "", "fp_seed": 0, "proxy": null, "proxy_id": null, "timezone": null,
+            "languages": null, "overrides": {}, "start_urls": [], "allow_no_proxy": false, "last_opened_at": null,
+        });
+        let made = Box::pin(agent.dispatch(
+            "profiles.createMany",
+            serde_json::json!({ "count": 3, "name_pattern": "w {n}", "template": template, "start": 7, "proxy_ids": ids }),
+        ))
+        .await
+        .unwrap();
+        assert_eq!(made["created"].as_array().unwrap().len(), 3);
+
+        let all = Box::pin(agent.dispatch("profiles.list", serde_json::json!({}))).await.unwrap();
+        let host = |name: &str| {
+            let row = all.as_array().unwrap().iter().find(|p| p["name"] == name).unwrap_or_else(|| panic!("no {name}"));
+            row["proxy"]["host"].as_str().map(str::to_string)
+        };
+        assert_eq!(host("w 7").as_deref(), Some("10.0.0.1"));
+        assert_eq!(host("w 8").as_deref(), Some("10.0.0.2"));
+        assert_eq!(host("w 9"), None, "the list is not handed round a second time");
+        drop(tidy);
     }
 
     /// From the moment a launch begins the profile is open to every call that

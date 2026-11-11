@@ -2,6 +2,7 @@
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
 import { useI18n } from "../i18n";
+import { quickCreateLabels } from "../quickCreateI18n";
 import { useState } from "react";
 import type { Me, Project, Shell } from "../api";
 
@@ -19,6 +20,9 @@ export function Sidebar({
   onRenameProject,
   onDeleteProject,
   onNewProfile,
+  onQuickCreate,
+  onBatch,
+  quickBusy,
   view,
   onView,
   onSettings,
@@ -39,9 +43,15 @@ export function Sidebar({
   view: View;
   onView: (v: View) => void;
   onNewProfile: () => void;
+  /** One profile, now, with no proxy and no dialog. */
+  onQuickCreate: () => void;
+  /** The batch dialog: how many, how named, and a list of proxies. */
+  onBatch: () => void;
+  quickBusy: boolean;
   onSettings: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, resolved } = useI18n();
+  const q = quickCreateLabels(resolved);
   const local = shell.mode === "local";
   const [menu, setMenu] = useState<string | null>(null);
   return (
@@ -51,6 +61,16 @@ export function Sidebar({
       <button className="primary newProfile" onClick={onNewProfile}>
         {t("bar.newProfile")}
       </button>
+      {/* Beside the full dialog, not instead of it: one click for a profile
+          to fill in later, and the batch for many of them. */}
+      <div className="quickCreate">
+        <button disabled={quickBusy} title={q("oneTitle")} onClick={onQuickCreate}>
+          {q("one")}
+        </button>
+        <button className="quickBatch" title={q("batchTitle")} onClick={onBatch}>
+          {q("batch")}
+        </button>
+      </div>
 
       <nav>
         {/* Sections first, projects under them: the sections are where an

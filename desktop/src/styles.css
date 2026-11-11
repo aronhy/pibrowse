@@ -1454,6 +1454,15 @@ input::placeholder {
   padding: 8px;
 }
 
+.quickCreate {
+  display: flex;
+  gap: var(--s-1);
+  margin: 0 var(--s-2) var(--s-2);
+}
+.quickCreate button { padding: 6px 8px; }
+.quickCreate button:first-child { flex: 1; min-width: 0; }
+.quickCreate .quickBatch { flex-shrink: 0; font-size: 12px; }
+
 .foot button.small {
   padding: 2px 0;
   font-size: 12px;

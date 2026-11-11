@@ -1246,8 +1246,15 @@ export const api = {
     namePattern: string,
     template: unknown,
     origin?: Origin,
+    /** `start` is the number the first one gets (1 when absent). `proxyIds`
+     *  are handed out one per profile, in order; a profile past the end of
+     *  the list keeps the template's proxy. */
+    more: { start?: number; proxyIds?: string[] } = {},
   ): Promise<{ created: unknown[]; failed: { n: number; error: string }[] }> =>
-    cmd("create_profiles", { count, namePattern, template, origin: origin ?? null }),
+    cmd("create_profiles", {
+      count, namePattern, template, origin: origin ?? null,
+      start: more.start ?? null, proxyIds: more.proxyIds ?? null,
+    }),
   /** Saved answers to the batch dialog, by name (docs/16 5.6). */
   templates: (): Promise<ProfileTemplate[]> => cmd("templates"),
   saveTemplate: (template: ProfileTemplate): Promise<{ saved: string }> => cmd("save_template", { template }),

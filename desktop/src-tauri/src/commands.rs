@@ -3209,7 +3209,14 @@ pub async fn create_profiles(
     name_pattern: String,
     template: serde_json::Value,
     origin: Option<String>,
+    // The number the first profile gets; absent is 1.
+    start: Option<u32>,
+    // One proxy per profile, in order. A profile past the end of the list
+    // keeps the template's.
+    proxy_ids: Option<Vec<String>>,
 ) -> R<serde_json::Value> {
+    let start = start.unwrap_or(1).max(1);
+    let proxy_ids = proxy_ids.unwrap_or_default();
     if !(1..=500).contains(&count) {
         return Err(ApiErr::local(
             "Between 1 and 500. Five hundred profiles is already more than a person can \
@@ -3233,6 +3240,8 @@ pub async fn create_profiles(
                 "count": count,
                 "name_pattern": name_pattern,
                 "template": template,
+                "start": start,
+                "proxy_ids": proxy_ids,
             }),
         )
         .await?);
@@ -3251,10 +3260,13 @@ pub async fn create_profiles(
 
     let mut created = Vec::new();
     let mut failed = Vec::new();
-    for i in 1..=count {
+    for (k, i) in (start..start + count).enumerate() {
         let mut one = template.clone();
         one["id"] = serde_json::json!("");
         one["name"] = serde_json::json!(pattern.replace("{n}", &i.to_string()));
+        if let Some(id) = proxy_ids.get(k).filter(|id| !id.is_empty()) {
+            one["proxy_id"] = serde_json::json!(id);
+        }
         if pick {
             one["persona_id"] =
                 serde_json::json!(fury_shared::catalogue::pick_weighted_on(

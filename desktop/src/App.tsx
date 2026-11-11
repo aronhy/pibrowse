@@ -38,6 +38,8 @@ import { ProfileWorkspaceControls } from "./components/ProfileWorkspaceControls"
 import { defaultWorkspacePreferences, selectWorkspaceProfiles, visibleSelectionState, type ProfileFilters, type ProfileWorkspacePreferences } from "./profileWorkspace";
 import { workspaceLabels } from "./profileWorkspaceI18n";
 import { useProfileWorkspace } from "./useProfileWorkspace";
+import { nextNumber } from "./quickCreate";
+import { quickCreateLabels } from "./quickCreateI18n";
 
 /** What the browser build the agent asks for changes, for the bar that offers
  *  it. One sentence for every build told a Mac being offered 0.3.8 about a
@@ -314,6 +316,41 @@ export function App() {
     active?.origin === "local" || active?.origin === "team" ? active.origin : local ? "local" : "team";
   const canChooseOrigin = !local && !active;
   // The CSV and anti-detect imports file profiles on this computer.
+  /** One profile, now: no dialog and no proxy. It is made on this computer
+   *  unless a team project is open -- and a team profile cannot exist without
+   *  a proxy, so there the click says where to go instead. The profile is not
+   *  allowed to open without a proxy: that stays a decision made in its
+   *  settings, not a side effect of the quick way in. */
+  const [quickBusy, setQuickBusy] = useState(false);
+  const quickCreate = async () => {
+    const q = quickCreateLabels(resolved);
+    if (newOrigin === "team" && !canChooseOrigin) {
+      setError(q("team"));
+      return;
+    }
+    setQuickBusy(true);
+    setError(null);
+    try {
+      const pattern = q("name");
+      // Every profile, not only the open project's: the number should not
+      // repeat a name that is merely filtered out of view.
+      const names = (await api.profiles().catch(() => profiles)).map((p) => p.name);
+      const n = nextNumber(names, pattern);
+      const r = await api.createProfiles(1, pattern, {
+        id: "", project_id: active?.origin === "local" ? active.id : null, name: "", notes: "",
+        status: "", tags: [], persona_id: "", fp_seed: 0, proxy: null, timezone: null,
+        languages: null, start_urls: [], last_opened_at: null,
+      }, "local", { start: n });
+      if (r.failed.length > 0) throw new Error(r.failed[0].error);
+      await load();
+      await refreshProfiles();
+      setNotice({ text: q("made", { name: pattern.replace("{n}", String(n)) }), forProfile: null });
+    } catch (e) {
+      setError(say(e));
+    } finally {
+      setQuickBusy(false);
+    }
+  };
   const importsHere = local || !active || active.origin === "local";
   // Local mode has nobody to sign in as. Team mode does, and until it happens
   // there is nothing to show.
@@ -761,6 +798,9 @@ export function App() {
         onView={setView}
         onNewProfile={() => setEditing(null)}
         onSettings={() => { setSettingsTab("general"); setSettingsOpen(true); }}
+        onQuickCreate={() => void quickCreate()}
+        onBatch={() => setBulk(null)}
+        quickBusy={quickBusy}
         onRenameProject={async (p) => {
           const name = await ask({
             title: t("proj.rename"),
