@@ -2,7 +2,7 @@
 # Copyright 2026 Bogdan Shapovalov and the Fury authors
 """A twenty-line client for the Fury automation API.
 
-Deliberately not a package, not on PyPI, and not clever: the API is six
+Deliberately not a package, not on PyPI, and not clever: the API is fifteen
 endpoints and one bearer token, and a dependency for that would be a worse deal
 than copying this file into your project, which is what it is for.
 
@@ -93,6 +93,43 @@ class Fury:
 
     def stop(self, profile_id: str):
         return self._call("POST", "/profiles/stop", {"id": profile_id})
+
+    def connection(self, profile_id: str):
+        """Where an open profile's browser is; `{"running": False}` when it is not."""
+        return self._call("POST", "/profiles/connection", {"id": profile_id})
+
+    def usage(self, profile_id: str):
+        return self._call("POST", "/profiles/usage", {"id": profile_id})
+
+    # The next three are refused while the profile is open. Stop it first.
+
+    def trim(self, profile_id: str):
+        """Remove the caches. Cookies and local storage stay."""
+        return self._call("POST", "/profiles/trim", {"id": profile_id})
+
+    def reseed(self, profile_id: str):
+        """A new noise seed on the same machine."""
+        return self._call("POST", "/profiles/reseed", {"id": profile_id})
+
+    def randomize(self, profile_id: str):
+        """Another machine of the same OS, and a new seed."""
+        return self._call("POST", "/profiles/randomize", {"id": profile_id})
+
+    def save_proxy(self, proxy: dict):
+        """A proxy as `proxies()` lists it, whole; an empty `id` makes a new one."""
+        return self._call("POST", "/proxies", proxy)
+
+    def check_proxy(self, url: str, checker_url: str | None = None):
+        body = {"url": url}
+        if checker_url:
+            body["checker_url"] = checker_url
+        return self._call("POST", "/proxies/check", body)
+
+    def rotate_proxy(self, proxy_id: str):
+        return self._call("POST", "/proxies/rotate", {"id": proxy_id})
+
+    def delete_proxy(self, proxy_id: str):
+        return self._call("POST", "/proxies/delete", {"id": proxy_id})
 
 
 class running:

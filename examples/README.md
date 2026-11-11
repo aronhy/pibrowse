@@ -29,18 +29,28 @@ comparison is constant-time, because an attacker controls one side of it.
 
 ## The surface
 
-Six endpoints. Each one is exactly one of the methods the desktop shell calls,
-so the HTTP surface cannot drift away from what the application does and be
-separately wrong.
+Fifteen endpoints. Each one is exactly one of the methods the desktop shell
+calls, so the HTTP surface cannot drift away from what the application does and
+be separately wrong. A read is a `GET`; anything that changes something is a
+`POST` with a JSON body.
 
 | | | |
 |---|---|---|
-| `GET`  | `/v1/status`          | is the agent up, and what does it have |
-| `GET`  | `/v1/profiles`        | profiles, with which are running |
-| `GET`  | `/v1/proxies`         | the proxy pool |
-| `GET`  | `/v1/personas`        | the persona catalogue |
-| `POST` | `/v1/profiles/start`  | `{"id": "...", "cdp": true}` |
-| `POST` | `/v1/profiles/stop`   | `{"id": "..."}` |
+| `GET`  | `/v1/status`               | is the agent up, and what does it have |
+| `GET`  | `/v1/profiles`             | profiles, with which are running |
+| `GET`  | `/v1/proxies`              | the proxy pool |
+| `GET`  | `/v1/personas`             | the persona catalogue |
+| `POST` | `/v1/profiles/start`       | `{"id": "...", "cdp": true}` |
+| `POST` | `/v1/profiles/stop`        | `{"id": "..."}` |
+| `POST` | `/v1/profiles/connection`  | `{"id": "..."}` — where an open profile's browser is |
+| `POST` | `/v1/profiles/usage`       | `{"id": "..."}` — how big it is, and how much of that is cache |
+| `POST` | `/v1/profiles/trim`        | `{"id": "..."}` — remove the caches, keep the session |
+| `POST` | `/v1/profiles/reseed`      | `{"id": "..."}` — a new noise seed on the same machine |
+| `POST` | `/v1/profiles/randomize`   | `{"id": "..."}` — another machine of the same OS, and a new seed |
+| `POST` | `/v1/proxies`              | a proxy as `/v1/proxies` lists it; an empty `id` makes one |
+| `POST` | `/v1/proxies/check`        | `{"url": "socks5://user:pass@host:port"}` — where it comes out |
+| `POST` | `/v1/proxies/rotate`       | `{"id": "..."}` — call the proxy's rotation link, through the proxy |
+| `POST` | `/v1/proxies/delete`       | `{"id": "..."}` |
 
 `start` with `"cdp": true` returns a DevTools endpoint:
 
@@ -56,6 +66,47 @@ separately wrong.
 
 The endpoint is under both names because the two libraries people actually use
 spell it differently and neither accepts the other's.
+
+`connection` answers the same thing for a profile that is already open, for a
+script that did not start it or has lost the answer — a second `start` is
+refused, so before this the only way back to a browser was to close it:
+
+```json
+{ "ok": true, "data": { "running": true, "pid": 40213, "relay_port": 51834,
+    "debug_port": 51835, "ws_endpoint": "ws://127.0.0.1:51835/devtools/browser/9c1f...",
+    "ws": { "puppeteer": "ws://...", "selenium": "ws://..." } } }
+```
+
+`{"running": false}` when it is not open, and no endpoint when it was opened
+without `cdp` — from the application's window, for instance. It gives out
+nothing the launch did not.
+
+## Between two runs of one profile
+
+`trim`, `reseed` and `randomize` are refused while the profile is open, with
+the same words the application uses: Chromium holds the cache, and a
+fingerprint must not change in the middle of a session. Stop it first.
+
+- **`trim`** removes the caches and nothing else. Cookies, local storage and
+  the service workers stay, so the profile is still signed in.
+- **`reseed`** keeps the machine and replaces the seed the canvas, audio and
+  geometry noise come from.
+- **`randomize`** replaces the machine as well: another persona of the same OS,
+  drawn by how common each is, never the one it had. Cores, memory, GPU and
+  screen pinned by hand are dropped, because they were pinned for the old
+  machine; locale, position, the proxy and the browser data stay. It is the
+  Random button of the profile dialog, saved. With no other machine of that OS
+  in the catalogue it refuses rather than move the profile to another OS.
+
+A proxy is written whole: read it from `GET /v1/proxies`, change what you mean
+to, and send it back. Every profile on that proxy follows, which is how one
+exit is moved for all of them at once and also the thing to remember before
+doing it. `check` takes a proxy as a URL rather than an id, so it can be asked
+before anything is saved.
+
+A profile with an account in it is that account's machine. `reseed` and
+`randomize` are for a profile that is being started over, not for one that is
+in use — a machine that changes overnight is the anomaly platforms look for.
 
 ## What it is not
 
