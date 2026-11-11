@@ -26,6 +26,11 @@ teams and is still in development.
 ## Getting started
 
 macOS (Apple Silicon): [PiBrowse 0.5.5 preview](https://github.com/aronhy/pibrowse/releases/tag/v0.5.5).
+
+- **[Download desktop app for macOS (.dmg)](https://github.com/aronhy/pibrowse/releases/download/v0.5.5/pibrowse-0.5.5-macos-arm64.dmg)**
+- **[Download Chromium 157 core (.tar.xz)](https://github.com/aronhy/pibrowse/releases/download/v0.5.5/pibrowse-core-0.5.5-macos-arm64.tar.xz)**
+- [SHA-256 checksums](https://github.com/aronhy/pibrowse/releases/download/v0.5.5/SHA256SUMS.txt)
+
 The desktop app and rebuilt Chromium **157.0.8103.39** core are separate downloads.
 The client’s **Download the browser** button installs the PiBrowse core from this
 repository. See the release for SHA-256 checksums and validation details.
@@ -33,6 +38,7 @@ repository. See the release for SHA-256 checksums and validation details.
 This preview uses ad-hoc signatures, has no Apple Developer ID or notarization,
 and uses manual application updates. Windows and Intel Mac binaries are not
 included in this PiBrowse release.
+
 - [Installation and build notes](docs/15-install.md)
 - [Team self-hosting guide](docs/13-self-hosting.md)
 
