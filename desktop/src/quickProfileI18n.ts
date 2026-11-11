@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 const en = {
   quick: "Quick creation", advanced: "Advanced", hint: "Name, proxy and start pages. A suitable device is selected automatically.",
   summary: "Device and fingerprint", showSummary: "Show full fingerprint", hideSummary: "Hide full fingerprint",

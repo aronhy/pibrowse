@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 const en = {
   all: "All", recent: "Recent 7 days", attention: "Needs attention", pinned: "Pinned",
   quickViews: "Quick views", sort: "Sort", sortDefault: "Default order", sortRecent: "Recently opened",

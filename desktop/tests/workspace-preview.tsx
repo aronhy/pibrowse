@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // This entry renders the real app against in-memory fixtures. Every API method
 // is replaced before mounting, including methods this fixture does not support.
 // Never import this entry from production sources or add it to the build input.

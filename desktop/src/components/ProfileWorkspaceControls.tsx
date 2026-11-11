@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { useI18n } from "../i18n";
 import { defaultWorkspacePreferences, deleteWorkspaceView, restoreWorkspaceView, sanitizeWorkspacePreferences, type ProfileColumn, type ProfileQuickFilter, type ProfileSort, type ProfileWorkspacePreferences } from "../profileWorkspace";
 import { workspaceLabels } from "../profileWorkspaceI18n";
