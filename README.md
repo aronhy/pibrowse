@@ -39,6 +39,22 @@ This preview uses ad-hoc signatures, has no Apple Developer ID or notarization,
 and uses manual application updates. Windows and Intel Mac binaries are not
 included in this PiBrowse release.
 
+### First launch on macOS / macOS 首次打开
+
+If macOS says Apple cannot verify PiBrowse and you trust the download, approve
+the app manually:
+
+1. Move **PiBrowse.app** to **Applications**, then try to open it.
+2. Open **System Settings → Privacy & Security**, find the PiBrowse notice,
+   and click **Open Anyway**.
+3. Confirm **Open** when prompted. macOS may ask you to authenticate.
+
+**中文：** 先将 PiBrowse.app 拖入「应用程序」并尝试打开。如果被拦截，确认下载来源可信后，进入
+**系统设置 → 隐私与安全性 → 找到 PiBrowse →「仍要打开」**，再按系统提示确认。
+当前预览版需要你自行完成这一步授权；应用仍未经过 Apple Developer ID 签名和 Apple 公证。
+
+[Apple’s official instructions / Apple 官方步骤](https://support.apple.com/zh-cn/102445)
+
 - [Installation and build notes](docs/15-install.md)
 - [Team self-hosting guide](docs/13-self-hosting.md)
 
