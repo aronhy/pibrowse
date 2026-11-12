@@ -26,6 +26,33 @@ export type Perm =
   | "reveal_secrets" | "export_cookies" | "create_profile" | "delete_profile"
   | "manage_access";
 
+/** Where an extension is fetched from: the Web Store by id, or a folder of
+ *  unpacked extension on this machine by absolute path. */
+export type ExtensionSource = { kind: "store"; id: string } | { kind: "folder"; path: string };
+
+/** One line of a project's list, as it is now. `problem` is set for a folder
+ *  that can no longer be read as an extension. */
+export interface ProjectExtension {
+  kind: "store" | "folder";
+  id?: string;
+  path?: string;
+  name?: string | null;
+  version?: string | null;
+  problem?: string;
+}
+
+/** Both off by default: a project then removes only what it gave, and what
+ *  it removes keeps its storage. */
+export interface ExtensionOptions {
+  exclusive: boolean;
+  wipe_storage: boolean;
+}
+
+export interface ProjectExtensions {
+  entries: ProjectExtension[];
+  options: ExtensionOptions;
+}
+
 export interface Project {
   /** Which world it lives in: this machine, or the server. */
   origin: Origin;
@@ -1371,6 +1398,25 @@ export const api = {
   }> => cmd("copy_extension_with_state", { fromProfileId, extId, profileIds }),
   removeExtension: (profileId: string, id: string): Promise<unknown> =>
     cmd("remove_extension", { profileId, id }),
+  /** An unpacked extension from a folder on this machine, by absolute path.
+   *  Every copy gets one id, whichever profile it is in; see ext.rs. */
+  installExtensionFolder: (profileIds: string[], path: string): Promise<{
+    extension: Extension | null; installed: string[]; skipped: { id: string; reason: string }[];
+  }> => cmd("install_extension_folder", { profileIds, path }),
+  /** The newer version from where each copy came from: the store through the
+   *  profile's proxy, or the folder read again. Storage is kept. */
+  refreshExtension: (extId: string, profileIds: string[]): Promise<{
+    refreshed: { id: string; from: string; to: string; changed: boolean }[];
+    skipped: { id: string; reason: string }[];
+  }> => cmd("refresh_extension", { extId, profileIds }),
+  /** What a local project gives every profile in it, applied at launch. */
+  projectExtensions: (projectId: string): Promise<ProjectExtensions> =>
+    cmd("project_extensions", { projectId }),
+  setProjectExtensions: (projectId: string, entries: ExtensionSource[]): Promise<ProjectExtensions> =>
+    cmd("set_project_extensions", { projectId, entries }),
+  /** The two switches, for the machine: see extsets.rs for what each gives up. */
+  setExtensionOptions: (options: ExtensionOptions): Promise<{ options: ExtensionOptions }> =>
+    cmd("set_extension_options", { exclusive: options.exclusive, wipeStorage: options.wipe_storage }),
   extensionCatalogue: (): Promise<CatalogueEntry[]> => cmd("extension_catalogue"),
   /** By Web Store id, fetched through each profile's own proxy (docs/12, B). */
   installExtensionFromStore: (profileIds: string[], extId: string): Promise<StoreInstallResult> =>

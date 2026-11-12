@@ -3,7 +3,18 @@
 
 import { IconButton } from "./Icon";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type CatalogueEntry, type ExtensionEverywhere, type Profile, type StoreInstallResult } from "../api";
+import {
+  api,
+  type CatalogueEntry,
+  type ExtensionEverywhere,
+  type ExtensionOptions,
+  type ExtensionSource,
+  type Profile,
+  type Project,
+  type ProjectExtension,
+  type StoreInstallResult,
+} from "../api";
+import { listFor, loadedAfter, optionsSaver, projectToShow, type LoadedList } from "../extensionOptions";
 import { useI18n } from "../i18n";
 
 /** Every extension on this machine, which profiles carry it, and a catalogue
@@ -24,12 +35,16 @@ import { useI18n } from "../i18n";
  *  profile together with its storage, so the copies are signed in. */
 type Pick =
   | { mode: "file" }
+  | { mode: "folder"; path: string }
   | { mode: "store"; id: string; name: string }
   | { mode: "copy"; id: string; name: string; from: string };
 
 const ID_IN_TEXT = /[a-p]{32}/;
+/** A folder as it has to be typed: absolute, on either platform. A store link
+ *  starts with a scheme and an id with a letter, so neither is mistaken. */
+const IS_PATH = /^(\/|[A-Za-z]:[\\/])/;
 
-export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
+export function ExtensionsView({ profiles, projects }: { profiles: Profile[]; projects: Project[] }) {
   const { t, say, resolved } = useI18n();
   const [rows, setRows] = useState<ExtensionEverywhere[] | null>(null);
   const [catalogue, setCatalogue] = useState<CatalogueEntry[]>([]);
@@ -50,6 +65,93 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
   const [picking, setPicking] = useState<Pick | null>(null);
   const [byId, setById] = useState("");
   const file = useRef<HTMLInputElement>(null);
+  const [folder, setFolder] = useState("");
+  // A project's list (extsets.rs in the agent). Local projects only: a team
+  // project is the server's, and its profiles' extensions come in the bundle.
+  const localProjects = projects.filter((p) => p.origin === "local");
+  const [projectId, setProjectId] = useState<string>(() => localProjects[0]?.id ?? "");
+  // The list with the project it is of, so that it is nobody's while another
+  // project's is on its way (extensionOptions.ts).
+  const [loaded, setLoaded] = useState<LoadedList<ProjectExtension> | null>(null);
+  const given = listFor(projectId, loaded);
+  // What is shown now, for an answer that arrives after the selection moved.
+  const showing = useRef(projectId);
+  showing.current = projectId;
+  const [options, setOptions] = useState<ExtensionOptions>({ exclusive: false, wipe_storage: false });
+  const [savingOptions, setSavingOptions] = useState(false);
+  // One save of the switches at a time, each built on the agent's last answer
+  // rather than on what was drawn when the box was ticked (extensionOptions.ts).
+  const saver = useRef(optionsSaver((next) => api.setExtensionOptions(next).then((r) => r.options), options)).current;
+  const [adding, setAdding] = useState("");
+
+  // The projects arrive after the first draw, and one can be deleted while
+  // it is the one shown.
+  const localIds = localProjects.map((p) => p.id).join("\n");
+  useEffect(() => {
+    setProjectId((current) => projectToShow(current, localIds ? localIds.split("\n") : []));
+  }, [localIds]);
+
+  useEffect(() => {
+    // Nothing to edit until this project's own list is here.
+    setLoaded(null);
+    if (!projectId) return;
+    let stale = false;
+    api.projectExtensions(projectId).then(
+      (r) => {
+        if (stale) return;
+        setLoaded((was) => loadedAfter(showing.current, projectId, r.entries, was));
+        saver.seen(r.options);
+        setOptions(r.options);
+      },
+      (e) => !stale && setError(say(e)),
+    );
+    return () => {
+      stale = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  /** An entry as the agent takes it back: what it is, not what it looks like now. */
+  const asSource = (e: ProjectExtension): ExtensionSource =>
+    e.kind === "folder" ? { kind: "folder", path: e.path ?? "" } : { kind: "store", id: e.id ?? "" };
+
+  const saveGiven = async (next: ExtensionSource[]) => {
+    setBusy(true);
+    setError(null);
+    // The project this save is for, whatever is selected when it answers.
+    const savedFor = projectId;
+    try {
+      const r = await api.setProjectExtensions(savedFor, next);
+      if (showing.current !== savedFor) return;
+      setLoaded((was) => loadedAfter(showing.current, savedFor, r.entries, was));
+      setAdding("");
+    } catch (e) {
+      setError(say(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveOptions = async (change: Partial<ExtensionOptions>) => {
+    if (saver.saving()) return;
+    setError(null);
+    setSavingOptions(true);
+    try {
+      const saved = await saver.change(change);
+      if (saved) setOptions(saved);
+    } catch (e) {
+      setError(say(e));
+    } finally {
+      setSavingOptions(false);
+    }
+  };
+
+  const addingText = adding.trim();
+  const addingSource: ExtensionSource | null = IS_PATH.test(addingText)
+    ? { kind: "folder", path: addingText }
+    : addingText.match(ID_IN_TEXT)
+      ? { kind: "store", id: addingText.match(ID_IN_TEXT)![0] }
+      : null;
 
   const load = useCallback(async () => {
     try {
@@ -73,6 +175,8 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
     if (r === "not_here") return t("exv.reason.not_here");
     if (r.startsWith("id_mismatch:")) return t("exv.reason.id_mismatch");
     if (r.startsWith("fetch:")) return t("exv.reason.fetch", { detail: r.slice(6) });
+    if (r.startsWith("folder:")) return t("exv.reason.folder", { detail: r.slice(7) });
+    if (r === "no_source") return t("exv.reason.no_source");
     if (r.startsWith("in_use:")) {
       const [who, machine] = r.slice(7).split("|");
       return t("exv.reason.in_use", { who: who || "?", machine: machine || "?" });
@@ -137,6 +241,55 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
         name,
       );
       setPicking(null);
+      await load();
+    } catch (e) {
+      setError(say(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const installFolder = async (path: string) => {
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      // This machine's profiles only: the folder is on this machine, and a
+      // team profile's extensions reach it through its bundle.
+      report(await api.installExtensionFolder([...targets].filter((x) => !isTeam(x)), path), path);
+      setPicking(null);
+      setFolder("");
+      await load();
+    } catch (e) {
+      setError(say(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const update = async (x: ExtensionEverywhere) => {
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      const r = await api.refreshExtension(x.id, x.profiles.map((p) => p.id).filter((id) => !isTeam(id)));
+      const skippedOpen = r.skipped.filter((s) => s.reason === "open").length;
+      // One sentence per reason rather than per profile: forty profiles with
+      // no source is one fact.
+      const why = [...new Set(r.skipped.filter((s) => s.reason !== "open").map((s) => reason(s.reason)))];
+      setNote(
+        [
+          t("exv.updated", {
+            name: x.name,
+            n: r.refreshed.filter((p) => p.changed).length,
+            m: r.refreshed.filter((p) => !p.changed).length,
+          }),
+          skippedOpen > 0 ? t("exv.skippedOpen", { n: skippedOpen }) : "",
+          why.join("; "),
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
       await load();
     } catch (e) {
       setError(say(e));
@@ -262,6 +415,19 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
                   {busy ? t("ck.working") : t("exv.chooseFile", { n: targets.size })}
                 </button>
               </>
+            ) : picking.mode === "folder" ? (
+              <button
+                className="primary"
+                disabled={busy || [...targets].filter((x) => !isTeam(x)).length === 0}
+                onClick={() => void installFolder(picking.path)}
+              >
+                {busy
+                  ? t("ck.working")
+                  : t("exv.storeTarget", {
+                      name: picking.path.split(/[\\/]/).filter(Boolean).pop() ?? picking.path,
+                      n: [...targets].filter((x) => !isTeam(x)).length,
+                    })}
+              </button>
             ) : picking.mode === "store" ? (
               <button
                 className="primary"
@@ -287,6 +453,7 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
             <p className="hint warn">{t("exv.noProxyWarn", { n: targetsWithoutProxy })}</p>
           )}
           {picking.mode === "file" && <p className="hint">{t("ext.hint")}</p>}
+          {picking.mode === "folder" && <p className="hint" style={{ maxWidth: 720 }}>{t("exv.folderHint")}</p>}
           {picking.mode === "copy" && <p className="hint" style={{ maxWidth: 720 }}>{t("exv.copyHint")}</p>}
         </div>
       )}
@@ -359,6 +526,105 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
         </button>
       </div>
 
+      <div className="row" style={{ marginBottom: "var(--s-5)", maxWidth: 720 }}>
+        <span className="muted small" style={{ whiteSpace: "nowrap" }}>{t("exv.folder")}</span>
+        <input
+          value={folder}
+          spellCheck={false}
+          placeholder="/Users/me/dev/my-extension"
+          title={t("exv.folderHint")}
+          style={{ fontFamily: "var(--mono)", fontSize: 12 }}
+          onChange={(e) => setFolder(e.target.value)}
+        />
+        <button
+          className="ghost"
+          disabled={busy || !IS_PATH.test(folder.trim()) || eligible.length === 0}
+          onClick={() => setPicking({ mode: "folder", path: folder.trim() })}
+        >
+          {t("exv.folderGo")}
+        </button>
+      </div>
+
+      {localProjects.length > 0 && (
+        <>
+          <h2 className="sectionTitle">{t("exv.projects")}</h2>
+          <p className="hint" style={{ maxWidth: 720 }}>{t("exv.projectsHint")}</p>
+          <div className="row" style={{ marginBottom: "var(--s-2)", maxWidth: 720 }}>
+            <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ width: "auto" }}>
+              {localProjects.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+            <input
+              value={adding}
+              spellCheck={false}
+              placeholder={t("exv.projectAddPlaceholder")}
+              style={{ fontFamily: "var(--mono)", fontSize: 12 }}
+              onChange={(e) => setAdding(e.target.value)}
+            />
+            <button
+              className="ghost"
+              disabled={busy || !addingSource || given === null}
+              onClick={() => addingSource && void saveGiven([...(given ?? []).map(asSource), addingSource])}
+            >
+              {t("exv.projectAdd")}
+            </button>
+          </div>
+          {given !== null && given.length === 0 && <p className="empty">{t("exv.projectNone")}</p>}
+          {given !== null && given.length > 0 && (
+            <table className="grid" style={{ marginBottom: "var(--s-3)" }}>
+              <tbody>
+                {given.map((g, i) => (
+                  <tr key={`${g.kind}:${g.id ?? ""}:${g.path ?? ""}`}>
+                    <td style={{ minWidth: 180 }}>
+                      <div className="name">
+                        {g.name ?? (g.kind === "folder" ? g.path : g.id)} {g.version && <span className="muted">{g.version}</span>}
+                      </div>
+                      <div className="muted small mono">{g.kind === "folder" ? g.path : g.id}</div>
+                    </td>
+                    <td className="muted small" style={{ whiteSpace: "nowrap" }}>
+                      {g.kind === "folder" ? t("exv.srcFolder") : t("exv.srcStore")}
+                      {g.problem && <span className="warn" title={g.problem}> · {t("exv.projectProblem")}</span>}
+                    </td>
+                    <td className="actions">
+                      <button
+                        className="ghost danger"
+                        disabled={busy}
+                        onClick={() => void saveGiven(given.filter((_, j) => j !== i).map(asSource))}
+                      >
+                        {t("exv.projectRemove")}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <div style={{ display: "grid", gap: "var(--s-2)", marginBottom: "var(--s-5)", maxWidth: 720 }}>
+            <label className="row">
+              <input
+                type="checkbox"
+                style={{ width: 14, height: 14, accentColor: "var(--accent)" }}
+                checked={options.exclusive}
+                disabled={savingOptions}
+                onChange={(e) => void saveOptions({ exclusive: e.target.checked })}
+              />
+              <span>{t("exv.optExclusive")}</span>
+            </label>
+            <label className="row">
+              <input
+                type="checkbox"
+                style={{ width: 14, height: 14, accentColor: "var(--accent)" }}
+                checked={options.wipe_storage}
+                disabled={savingOptions}
+                onChange={(e) => void saveOptions({ wipe_storage: e.target.checked })}
+              />
+              <span>{t("exv.optWipe")}</span>
+            </label>
+          </div>
+        </>
+      )}
+
       <h2 className="sectionTitle">{t("exv.extension")}</h2>
       <div className="tableWrap">
         {rows === null ? (
@@ -399,6 +665,9 @@ export function ExtensionsView({ profiles }: { profiles: Profile[] }) {
                     )}
                   </td>
                   <td className="actions">
+                    <button className="ghost" disabled={busy} title={t("exv.updateTitle")} onClick={() => void update(x)}>
+                      {t("exv.update")}
+                    </button>
                     <button
                       className="ghost"
                       disabled={busy || eligible.length < 2}

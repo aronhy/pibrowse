@@ -3666,6 +3666,54 @@ pub async fn copy_extension_with_state(
     .await?)
 }
 
+/// An unpacked extension from a folder on this machine (agent:
+/// extensions.install_folder). The path is typed, not picked: this shell has
+/// no native file dialog, and a folder chosen in the webview is a list of
+/// files without the path the agent needs to read it again on refresh.
+#[tauri::command]
+pub async fn install_extension_folder(profile_ids: Vec<String>, path: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call(
+        "extensions.install_folder",
+        serde_json::json!({ "profile_ids": profile_ids, "path": path }),
+    )
+    .await?)
+}
+
+/// The newer version from wherever each copy came from (agent: extensions.refresh).
+#[tauri::command]
+pub async fn refresh_extension(ext_id: String, profile_ids: Vec<String>) -> R<serde_json::Value> {
+    Ok(crate::agent::call(
+        "extensions.refresh",
+        serde_json::json!({ "ext_id": ext_id, "profile_ids": profile_ids }),
+    )
+    .await?)
+}
+
+/// What a local project gives every profile in it (agent: extsets.rs).
+#[tauri::command]
+pub async fn project_extensions(project_id: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("extensions.project.get", serde_json::json!({ "project_id": project_id })).await?)
+}
+
+#[tauri::command]
+pub async fn set_project_extensions(project_id: String, entries: Vec<serde_json::Value>) -> R<serde_json::Value> {
+    Ok(crate::agent::call(
+        "extensions.project.set",
+        serde_json::json!({ "project_id": project_id, "entries": entries }),
+    )
+    .await?)
+}
+
+/// How a project's list is enforced, for this machine (agent: extsets.rs).
+#[tauri::command]
+pub async fn set_extension_options(exclusive: bool, wipe_storage: bool) -> R<serde_json::Value> {
+    Ok(crate::agent::call(
+        "extensions.options.set",
+        serde_json::json!({ "exclusive": exclusive, "wipe_storage": wipe_storage }),
+    )
+    .await?)
+}
+
 #[tauri::command]
 pub async fn remove_extension(profile_id: String, id: String) -> R<serde_json::Value> {
     Ok(crate::agent::call(
