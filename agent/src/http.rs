@@ -174,19 +174,7 @@ async fn handle(
         params
     };
 
-    // Thin on purpose: every route is one IPC method, so the HTTP surface
-    // cannot drift away from what the shell uses and be separately wrong.
-    let route = match (req.method.as_str(), req.path.as_str()) {
-        ("GET", "/v1/status") => Some(("status", params)),
-        ("GET", "/v1/profiles") => Some(("profiles.list", params)),
-        ("GET", "/v1/proxies") => Some(("proxies.list", params)),
-        ("GET", "/v1/personas") => Some(("personas.list", params)),
-        ("POST", "/v1/profiles/start") => Some(("profile.launch", params)),
-        ("POST", "/v1/profiles/stop") => Some(("profile.stop", params)),
-        _ => None,
-    };
-
-    let Some((method, params)) = route else {
+    let Some(method) = route(&req.method, &req.path) else {
         return respond(
             &mut stream,
             404,
@@ -206,6 +194,39 @@ async fn handle(
             .await
         }
     }
+}
+
+/// Which IPC method an endpoint is.
+///
+/// Thin on purpose: every route is one IPC method, so the HTTP surface cannot
+/// drift away from what the shell uses and be separately wrong. The rules a
+/// method keeps -- a cache is not removed and a seed is not replaced while the
+/// browser is open -- are kept in `ipc.rs`, once, and a script meets the same
+/// refusal the interface does.
+///
+/// What is here is what a script needs between two runs of one profile: find
+/// the browser that is already open, clear the cache, give it a new seed or a
+/// new machine, point its proxy somewhere else and check where that comes out.
+/// Creating a profile is still not here; see examples/README.md.
+fn route(method: &str, path: &str) -> Option<&'static str> {
+    Some(match (method, path) {
+        ("GET", "/v1/status") => "status",
+        ("GET", "/v1/profiles") => "profiles.list",
+        ("GET", "/v1/proxies") => "proxies.list",
+        ("GET", "/v1/personas") => "personas.list",
+        ("POST", "/v1/profiles/start") => "profile.launch",
+        ("POST", "/v1/profiles/stop") => "profile.stop",
+        ("POST", "/v1/profiles/connection") => "profile.connection",
+        ("POST", "/v1/profiles/usage") => "profiles.usage",
+        ("POST", "/v1/profiles/trim") => "profiles.trim",
+        ("POST", "/v1/profiles/reseed") => "profiles.reseed",
+        ("POST", "/v1/profiles/randomize") => "profiles.randomize",
+        ("POST", "/v1/proxies") => "proxies.upsert",
+        ("POST", "/v1/proxies/check") => "proxies.check",
+        ("POST", "/v1/proxies/rotate") => "proxies.rotate",
+        ("POST", "/v1/proxies/delete") => "proxies.delete",
+        _ => return None,
+    })
 }
 
 async fn read_request(stream: &mut TcpStream) -> anyhow::Result<Option<Request>> {
@@ -314,6 +335,36 @@ mod tests {
         assert!(constant_time_eq(b"abc", b"abc"));
         assert!(!constant_time_eq(b"abc", b"abd"));
         assert!(!constant_time_eq(b"abc", b"ab"));
+    }
+
+    /// Every endpoint examples/README.md lists, and nothing that reads like
+    /// one. A read is a GET and a change is a POST: a GET that removed a cache
+    /// would be one a link preview or a retry could trigger.
+    #[test]
+    fn a_route_is_one_ipc_method_and_a_change_is_never_a_get() {
+        assert_eq!(route("GET", "/v1/profiles"), Some("profiles.list"));
+        assert_eq!(route("POST", "/v1/profiles/start"), Some("profile.launch"));
+        for (path, method) in [
+            ("/v1/profiles/connection", "profile.connection"),
+            ("/v1/profiles/usage", "profiles.usage"),
+            ("/v1/profiles/trim", "profiles.trim"),
+            ("/v1/profiles/reseed", "profiles.reseed"),
+            ("/v1/profiles/randomize", "profiles.randomize"),
+            ("/v1/proxies", "proxies.upsert"),
+            ("/v1/proxies/check", "proxies.check"),
+            ("/v1/proxies/rotate", "proxies.rotate"),
+            ("/v1/proxies/delete", "proxies.delete"),
+        ] {
+            assert_eq!(route("POST", path), Some(method), "{path}");
+            if path != "/v1/proxies" {
+                assert_eq!(route("GET", path), None, "{path} answered a GET");
+            }
+        }
+        // The shell's own methods stay the shell's: nothing reaches `dispatch`
+        // by being spelled as a path.
+        for path in ["/v1/agent/shutdown", "/v1/profiles/delete", "/v1/credentials", "/v1/profiles/", "/"] {
+            assert_eq!(route("POST", path), None, "{path}");
+        }
     }
 
     #[test]

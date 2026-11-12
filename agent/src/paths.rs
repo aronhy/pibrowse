@@ -109,6 +109,12 @@ pub fn farms_file() -> PathBuf {
     data_dir().join("farms.json")
 }
 
+/// Where each installed extension came from and what each project gives its
+/// profiles (extsets.rs): one JSON file, rewritten when either changes.
+pub fn extension_sources_file() -> PathBuf {
+    data_dir().join("extension-sources.json")
+}
+
 /// Bookmark sets and the profiles each is given to (bookmarks.rs): one JSON
 /// file, rewritten when a set is saved or deleted.
 pub fn bookmarks_file() -> PathBuf {

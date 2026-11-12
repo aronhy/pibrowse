@@ -13,6 +13,69 @@ export interface Spread {
   port: string;
   username?: string;
   password?: string;
+  /** Which of the parser's shapes the line was, for a form that says so. */
+  shape?: string;
+}
+
+/** Reads one proxy line into the fields it fills: the paste below and the
+ *  form's one-line box both go through here, so a line is read one way.
+ *
+ *  `apply` hears the fields, or `null` for a line that is not a proxy.
+ *  `onKind`, when given, hears which protocol the address itself answered on,
+ *  for a line that did not say -- see `spreadPastedProxy` for why it matters.
+ *  The question goes out `sniffAfterMs` after the line was read, so a box read
+ *  as it is typed asks once the typing has stopped.
+ *
+ *  Only the latest line may be answered: a slow answer about the line before
+ *  must not overwrite the one read since. `cancel` drops whatever is pending. */
+export function proxyLineReader(
+  apply: (found: Spread | null) => void,
+  onKind?: (kind: "http" | "socks5") => void,
+  sniffAfterMs = 0,
+) {
+  let seq = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const cancel = () => {
+    seq += 1;
+    if (timer) clearTimeout(timer);
+  };
+  const read = (text: string) => {
+    cancel();
+    const mine = seq;
+    api
+      .parseProxyLine(text)
+      .then((p) => {
+        if (mine !== seq) return;
+        if (!p) return apply(null);
+        apply({
+          // The scheme only when the line carried one: `host:port:user:pass`
+          // says nothing about the type, and the parser's default is a guess.
+          // What the address answers on is found out below.
+          kind: p.shape === "Url" ? p.kind : undefined,
+          host: p.host,
+          port: String(p.port),
+          username: p.username ?? undefined,
+          password: p.password ?? undefined,
+          shape: p.shape,
+        });
+        if (p.shape === "Url" || !onKind) return;
+        const ask = () =>
+          api
+            .sniffProxyKind(p.host, p.port)
+            .then((r) => {
+              if (mine === seq && r.kind) onKind(r.kind);
+            })
+            // No agent, or it could not tell: the button stays as it was, which
+            // is what happened before there was a guess at all.
+            .catch(() => {});
+        if (sniffAfterMs > 0) timer = setTimeout(ask, sniffAfterMs);
+        else ask();
+      })
+      .catch(() => {
+        if (mine === seq) apply(null);
+      });
+  };
+  return { read, cancel };
 }
 
 /** A whole proxy line, pasted into the host box.
@@ -42,9 +105,11 @@ export function spreadPastedProxy(
   apply: (found: Spread) => void,
   onKind?: (kind: "http" | "socks5") => void,
 ) {
-  // Only the latest paste may set the type: a slow answer about the line
-  // before must not overwrite the one pasted since.
-  let seq = 0;
+  // One reader for every paste into this box, so a slow answer about the
+  // line pasted before cannot overwrite the one pasted since.
+  let asPasted = "";
+  // Not a proxy line after all -- give it what the paste would have done.
+  const reader = proxyLineReader((found) => apply(found ?? { host: asPasted, port: "" }), onKind);
   return (e: ClipboardEvent<HTMLInputElement>) => {
     const text = e.clipboardData.getData("text").trim();
     // A line with no separator is a hostname and nothing else. Let the
@@ -53,34 +118,9 @@ export function spreadPastedProxy(
     if (!text || !/[:@\s;|]/.test(text) || text.includes("\n")) return;
     e.preventDefault();
     const input = e.currentTarget;
-    void api.parseProxyLine(text).then((p) => {
-      if (!p) {
-        // Not a proxy line after all -- give it what the paste would have done.
-        const start = input.selectionStart ?? input.value.length;
-        const end = input.selectionEnd ?? start;
-        apply({ host: input.value.slice(0, start) + text + input.value.slice(end), port: "" });
-        return;
-      }
-      apply({
-        // The scheme only when the line carried one: `host:port:user:pass`
-        // says nothing about the type, and the parser's default is a guess.
-        // What the address answers on is found out below.
-        kind: p.shape === "Url" ? p.kind : undefined,
-        host: p.host,
-        port: String(p.port),
-        username: p.username ?? undefined,
-        password: p.password ?? undefined,
-      });
-      if (p.shape === "Url" || !onKind) return;
-      const mine = ++seq;
-      api
-        .sniffProxyKind(p.host, p.port)
-        .then((r) => {
-          if (mine === seq && r.kind) onKind(r.kind);
-        })
-        // No agent, or it could not tell: the button stays as it was, which
-        // is what happened before there was a guess at all.
-        .catch(() => {});
-    });
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? start;
+    asPasted = input.value.slice(0, start) + text + input.value.slice(end);
+    reader.read(text);
   };
 }

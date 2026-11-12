@@ -42,6 +42,59 @@ const ELEMENTS: &str = r#"(() => {
   });
 })()"#;
 
+/// How long `page.wait` waits unless told, and the most it will: the request
+/// that carries it is given 120 seconds by the MCP side (mcp.rs, agent_call).
+const DEFAULT_WAIT: u64 = 10;
+const MAX_WAIT: u64 = 60;
+/// What one wheel event sent from here carries, in CSS pixels. A scroll is
+/// sent as several of these rather than as one event carrying 900 pixels,
+/// which is a wheel nobody owns.
+///
+/// What is known about 120 is what the real-browser test below shows: the
+/// page receives `deltaY` of 120 unchanged, in a trusted event. That a
+/// physical wheel delivers 120 per notch is not claimed -- it differs by OS
+/// and by device, and none was measured.
+const WHEEL_NOTCH: f64 = 120.0;
+/// At most this many screens per scroll. Reading a page is done a screen or
+/// two at a time; a number far past that is a typo, not a request.
+const MAX_SCREENS: f64 = 10.0;
+
+/// A key that is pressed rather than typed: what moves focus, submits,
+/// dismisses and scrolls. Letters go through `page.type`.
+struct Key {
+    name: &'static str,
+    code: &'static str,
+    vk: u32,
+    /// What the key inserts, for the two that insert something. A key with
+    /// text is a `keyDown`; one without is a `rawKeyDown`, which is how
+    /// Chrome itself tells them apart.
+    text: &'static str,
+}
+
+const KEYS: &[Key] = &[
+    Key { name: "Enter", code: "Enter", vk: 13, text: "\r" },
+    Key { name: "Tab", code: "Tab", vk: 9, text: "" },
+    Key { name: "Escape", code: "Escape", vk: 27, text: "" },
+    Key { name: "Backspace", code: "Backspace", vk: 8, text: "" },
+    Key { name: "Delete", code: "Delete", vk: 46, text: "" },
+    Key { name: "Space", code: "Space", vk: 32, text: " " },
+    Key { name: "ArrowUp", code: "ArrowUp", vk: 38, text: "" },
+    Key { name: "ArrowDown", code: "ArrowDown", vk: 40, text: "" },
+    Key { name: "ArrowLeft", code: "ArrowLeft", vk: 37, text: "" },
+    Key { name: "ArrowRight", code: "ArrowRight", vk: 39, text: "" },
+    Key { name: "PageUp", code: "PageUp", vk: 33, text: "" },
+    Key { name: "PageDown", code: "PageDown", vk: 34, text: "" },
+    Key { name: "Home", code: "Home", vk: 36, text: "" },
+    Key { name: "End", code: "End", vk: 35, text: "" },
+];
+
+/// By the name a person would say, in any case: "enter", "Esc", "pagedown".
+fn key(name: &str) -> Option<&'static Key> {
+    let name = name.trim();
+    let name = if name.eq_ignore_ascii_case("esc") { "Escape" } else { name };
+    KEYS.iter().find(|k| k.name.eq_ignore_ascii_case(name))
+}
+
 /// `background`: the profile was started with MCP's background start, so its
 /// window is not the active one and the page knows it — document.hasFocus() is
 /// false and focus moved away. Clicks and keystrokes arriving at a page that
@@ -81,6 +134,38 @@ pub async fn dispatch(method: &str, ws: &str, params: &Value, background: bool) 
             page.type_text(target, text, submit).await
         }
         "page.screenshot" => page.screenshot().await,
+        "page.key" => {
+            let name = params.get("key").and_then(Value::as_str).unwrap_or_default();
+            match key(name) {
+                Some(k) => page.press(k).await,
+                None => Err(anyhow::anyhow!(
+                    "no key {name:?}; the keys are {}",
+                    KEYS.iter().map(|k| k.name).collect::<Vec<_>>().join(", ")
+                )),
+            }
+        }
+        "page.scroll" => {
+            let up = match params.get("direction").and_then(Value::as_str).unwrap_or("down") {
+                "down" => false,
+                "up" => true,
+                other => anyhow::bail!("direction is \"down\" or \"up\", not {other:?}"),
+            };
+            let screens = params.get("screens").and_then(Value::as_f64).unwrap_or(1.0);
+            page.scroll(up, screens).await
+        }
+        "page.wait" => {
+            let text = params.get("text").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+            let url = params.get("url").and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty());
+            if text.is_none() && url.is_none() {
+                anyhow::bail!("say what to wait for: text that appears on the page, or part of the address");
+            }
+            let seconds = params.get("seconds").and_then(Value::as_u64).unwrap_or(DEFAULT_WAIT).clamp(1, MAX_WAIT);
+            page.wait_for(text, url, Duration::from_secs(seconds)).await
+        }
+        "page.history" => {
+            let action = params.get("action").and_then(Value::as_str).unwrap_or_default();
+            page.history(action).await
+        }
         other => anyhow::bail!("no page method {other:?}"),
     };
     page.detach().await;
@@ -328,19 +413,150 @@ impl Page {
             self.call("Input.insertText", json!({ "text": text })).await?;
         }
         if submit {
-            for kind in ["keyDown", "keyUp"] {
-                self.call(
-                    "Input.dispatchKeyEvent",
-                    json!({
-                        "type": kind, "key": "Enter", "code": "Enter",
-                        "windowsVirtualKeyCode": 13, "nativeVirtualKeyCode": 13,
-                        "text": if kind == "keyDown" { "\r" } else { "" },
-                    }),
-                )
-                .await?;
-            }
+            self.key_event(key("Enter").expect("Enter is in the table")).await?;
             self.settle(Duration::from_secs(15)).await;
         }
+        Ok(self.where_am_i().await)
+    }
+
+    /// Down and up, as a keyboard sends them, to whatever has focus.
+    async fn key_event(&mut self, k: &Key) -> anyhow::Result<()> {
+        // The key as the page reads it: the character for the one key whose
+        // name is not its character.
+        let named = if k.name == "Space" { " " } else { k.name };
+        // No nativeVirtualKeyCode. It is the host's own key number, and the
+        // Windows one in its place is a different key on a Mac: with 27 there,
+        // Escape reached the page and also opened chrome://settings/help in a
+        // second tab (Chrome 156 on macOS, 11.11.2026). Without the field the
+        // keydown arrives trusted, with the right `key` and `code`: that is
+        // what the real-browser test below asserts for five keys, and all
+        // that was measured -- how Chrome fills the native code in was not
+        // looked at.
+        let down = if k.text.is_empty() { "rawKeyDown" } else { "keyDown" };
+        for kind in [down, "keyUp"] {
+            self.call(
+                "Input.dispatchKeyEvent",
+                json!({
+                    "type": kind, "key": named, "code": k.code,
+                    "windowsVirtualKeyCode": k.vk,
+                    "text": if kind == "keyUp" { "" } else { k.text },
+                }),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    async fn press(&mut self, k: &Key) -> anyhow::Result<Value> {
+        self.key_event(k).await?;
+        // Enter can submit a form and Escape can close what the next read
+        // expects to be gone; the others change nothing a read waits for.
+        if k.name == "Enter" {
+            self.settle(Duration::from_secs(15)).await;
+        } else {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+        Ok(self.where_am_i().await)
+    }
+
+    /// The wheel, over the middle of the page, a notch at a time. Wheel events
+    /// rather than `scrollBy`: a page that loads more as it is scrolled listens
+    /// for the scroll either way, but only one of the two comes with the input
+    /// events a hand produces.
+    async fn scroll(&mut self, up: bool, screens: f64) -> anyhow::Result<Value> {
+        if !screens.is_finite() || screens <= 0.0 {
+            anyhow::bail!("screens is how far to scroll, in screens: a number above 0");
+        }
+        let screens = screens.min(MAX_SCREENS);
+        let view = self.eval("({ w: innerWidth, h: innerHeight })").await?;
+        let (w, h) = match (view.get("w").and_then(Value::as_f64), view.get("h").and_then(Value::as_f64)) {
+            (Some(w), Some(h)) if w > 0.0 && h > 0.0 => (w, h),
+            _ => anyhow::bail!("the page has no size to scroll in"),
+        };
+        let (x, y) = (w / 2.0, h / 2.0);
+        self.call("Input.dispatchMouseEvent", json!({ "type": "mouseMoved", "x": x, "y": y }))
+            .await?;
+        let notches = (h * screens / WHEEL_NOTCH).ceil().max(1.0) as usize;
+        let delta = if up { -WHEEL_NOTCH } else { WHEEL_NOTCH };
+        for _ in 0..notches {
+            self.call(
+                "Input.dispatchMouseEvent",
+                json!({ "type": "mouseWheel", "x": x, "y": y, "deltaX": 0, "deltaY": delta }),
+            )
+            .await?;
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        // Smooth scrolling is still arriving when the last event has been sent.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let mut out = self.where_am_i().await;
+        let at = self
+            .eval(
+                "(() => { const d = document.scrollingElement || document.documentElement; \
+                 return { y: Math.round(scrollY), view: innerHeight, height: d.scrollHeight }; })()",
+            )
+            .await?;
+        let n = |k: &str| at.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+        out["scroll_y"] = json!(n("y"));
+        out["viewport_height"] = json!(n("view"));
+        out["page_height"] = json!(n("height"));
+        // Within a pixel: a zoomed page reports fractions it then rounds.
+        out["at_top"] = json!(n("y") <= 1.0);
+        out["at_bottom"] = json!(n("y") + n("view") >= n("height") - 1.0);
+        Ok(out)
+    }
+
+    /// Until the page says the text or the address has the part, or the time
+    /// is up. Not finding it is an answer and not an error: "it did not
+    /// appear" is what the assistant has to tell the person, and an error
+    /// would read as the tool having failed.
+    async fn wait_for(&mut self, text: Option<&str>, url: Option<&str>, within: Duration) -> anyhow::Result<Value> {
+        // JSON is a JavaScript literal, so this is quoting and not building a
+        // script out of what a model sent.
+        let script = format!(
+            "(() => {{ const text = {}, url = {}; \
+             const body = document.body ? document.body.innerText.toLowerCase() : ''; \
+             return (text === null || body.includes(text.toLowerCase())) \
+                 && (url === null || location.href.includes(url)); }})()",
+            serde_json::to_string(&text)?,
+            serde_json::to_string(&url)?,
+        );
+        let start = Instant::now();
+        let found = loop {
+            // A page between two documents refuses a script; that is "not yet".
+            if let Ok(Value::Bool(true)) = self.eval(&script).await {
+                break true;
+            }
+            if start.elapsed() >= within {
+                break false;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        };
+        let mut out = self.where_am_i().await;
+        out["found"] = json!(found);
+        out["waited_ms"] = json!(start.elapsed().as_millis() as u64);
+        Ok(out)
+    }
+
+    /// Back, forward and reload: the three buttons beside the address bar.
+    async fn history(&mut self, action: &str) -> anyhow::Result<Value> {
+        match action {
+            "reload" => {
+                self.call("Page.reload", json!({})).await?;
+            }
+            "back" | "forward" => {
+                let h = self.call("Page.getNavigationHistory", json!({})).await?;
+                let at = h.get("currentIndex").and_then(Value::as_i64).unwrap_or(0);
+                let to = if action == "back" { at - 1 } else { at + 1 };
+                let entry = usize::try_from(to)
+                    .ok()
+                    .and_then(|i| h.get("entries").and_then(Value::as_array).and_then(|a| a.get(i)))
+                    .and_then(|e| e.get("id").and_then(Value::as_i64))
+                    .ok_or_else(|| anyhow::anyhow!("there is no page to go {action} to in this tab"))?;
+                self.call("Page.navigateToHistoryEntry", json!({ "entryId": entry })).await?;
+            }
+            other => anyhow::bail!("action is \"back\", \"forward\" or \"reload\", not {other:?}"),
+        }
+        self.settle(Duration::from_secs(20)).await;
         Ok(self.where_am_i().await)
     }
 
@@ -381,6 +597,132 @@ mod tests {
         assert_eq!(normalise(" http://a.b/c ").unwrap(), "http://a.b/c");
         assert_eq!(normalise("about:blank").unwrap(), "about:blank");
         assert_eq!(normalise("localhost:3000/x").unwrap(), "https://localhost:3000/x");
+    }
+
+    #[test]
+    fn a_key_is_found_by_the_name_a_person_says() {
+        assert_eq!(super::key("enter").unwrap().vk, 13);
+        assert_eq!(super::key(" Esc ").unwrap().name, "Escape");
+        assert_eq!(super::key("PAGEDOWN").unwrap().code, "PageDown");
+        // Letters are typed, not pressed, and a chord is not a key.
+        assert!(super::key("a").is_none());
+        assert!(super::key("Ctrl+A").is_none());
+        assert!(super::key("").is_none());
+        // Only the two that insert something carry text; the rest must go as
+        // rawKeyDown or Chrome inserts their name's first letter nowhere and
+        // fires a keypress no keyboard sends.
+        let with_text: Vec<&str> = super::KEYS.iter().filter(|k| !k.text.is_empty()).map(|k| k.name).collect();
+        assert_eq!(with_text, ["Enter", "Space"]);
+    }
+
+    /// One page, served from this process: it writes down the last key it was
+    /// sent and whether the wheel it felt was trusted, and grows a paragraph a
+    /// second and a half after it loads.
+    async fn serve_test_page() -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        const PAGE: &str = r#"<!doctype html><title>start</title><body style="margin:0">
+<input id="i" autofocus><p id="k">key:none</p><p id="w">wheel:none</p>
+<div style="height:1500px">tall</div><p>the end</p>
+<script>
+addEventListener('keydown', e => { k.textContent = 'key:' + e.key + '/' + e.code + '/' + e.isTrusted; });
+addEventListener('wheel', e => { w.textContent = 'wheel:' + e.deltaY + '/' + e.isTrusted; });
+setTimeout(() => { const p = document.createElement('p'); p.textContent = 'Late Arrival'; document.body.prepend(p); }, 1500);
+</script>"#;
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 4096];
+                    let _ = stream.read(&mut buf).await;
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        PAGE.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(PAGE.as_bytes()).await;
+                });
+            }
+        });
+        port
+    }
+
+    /// The four against a real browser, which is the only way to know that a
+    /// key arrives as a key and a wheel as a wheel. Any Chromium started with
+    /// a debugging port will do; the endpoint is `webSocketDebuggerUrl` from
+    /// its /json/version.
+    ///
+    /// Not a Fury profile, though: its traffic goes through the relay, which
+    /// refuses anything aimed at loopback (relay.rs) -- the rule that keeps a
+    /// page away from the automation API -- and the page this test serves is
+    /// on loopback. Tried on the 157 core, 11.11.2026: the first navigation
+    /// answers net::ERR_HTTP_RESPONSE_CODE_FAILURE. Run on Chrome 156.
+    ///
+    ///     FURY_TEST_CDP=ws://127.0.0.1:9333/devtools/browser/… \
+    ///         cargo test -p fury-agent browse -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore = "needs a browser: set FURY_TEST_CDP to its DevTools endpoint"]
+    async fn keys_wheel_waiting_and_history_against_a_real_browser() {
+        use serde_json::json;
+        let ws = std::env::var("FURY_TEST_CDP").expect("FURY_TEST_CDP");
+        let port = serve_test_page().await;
+        let home = format!("http://127.0.0.1:{port}/");
+        let go = |method: &'static str, params: serde_json::Value| {
+            let ws = ws.clone();
+            async move { super::dispatch(method, &ws, &params, false).await }
+        };
+        let text = || async {
+            go("page.read", json!({})).await.unwrap()["text"].as_str().unwrap().to_string()
+        };
+
+        let at = go("page.navigate", json!({ "url": home })).await.unwrap();
+        assert_eq!(at["url"], home.as_str());
+
+        // Not there yet, then there; and a thing that never comes is `false`
+        // after about the time asked, not an error.
+        assert!(!text().await.contains("Late Arrival"), "the page was not meant to have it yet");
+        let late = go("page.wait", json!({ "text": "late arrival", "seconds": 5 })).await.unwrap();
+        assert_eq!(late["found"], true, "{late}");
+        let never = go("page.wait", json!({ "text": "no such words", "seconds": 1 })).await.unwrap();
+        assert_eq!(never["found"], false, "{never}");
+        let waited = never["waited_ms"].as_u64().unwrap();
+        assert!((1000..3000).contains(&waited), "waited {waited} ms for one second");
+        let there = go("page.wait", json!({ "url": format!(":{port}/") })).await.unwrap();
+        assert_eq!(there["found"], true);
+        assert!(go("page.wait", json!({})).await.is_err(), "waiting for nothing");
+
+        // The page saw a trusted keydown with the key and code a keyboard
+        // sends for each.
+        for (name, seen) in [("Escape", "key:Escape/Escape/true"), ("space", "key: /Space/true"),
+                             ("Enter", "key:Enter/Enter/true"),
+                             ("ArrowDown", "key:ArrowDown/ArrowDown/true"), ("Tab", "key:Tab/Tab/true")] {
+            go("page.key", json!({ "key": name })).await.unwrap();
+            let body = text().await;
+            assert!(body.contains(seen), "{name}: {body}");
+        }
+        assert!(go("page.key", json!({ "key": "F13" })).await.is_err());
+
+        let down = go("page.scroll", json!({})).await.unwrap();
+        assert!(down["scroll_y"].as_f64().unwrap() > 0.0, "{down}");
+        assert_eq!(down["at_top"], false);
+        assert_eq!(down["at_bottom"], false);
+        let body = text().await;
+        assert!(body.contains("wheel:120/true"), "a notch of a trusted wheel: {body}");
+        let bottom = go("page.scroll", json!({ "screens": 10 })).await.unwrap();
+        assert_eq!(bottom["at_bottom"], true, "{bottom}");
+        let top = go("page.scroll", json!({ "direction": "up", "screens": 10 })).await.unwrap();
+        assert_eq!(top["at_top"], true, "{top}");
+        assert!(text().await.contains("wheel:-120/true"));
+        assert!(go("page.scroll", json!({ "direction": "sideways" })).await.is_err());
+        assert!(go("page.scroll", json!({ "screens": 0 })).await.is_err());
+
+        let two = format!("{home}two");
+        go("page.navigate", json!({ "url": two })).await.unwrap();
+        assert_eq!(go("page.history", json!({ "action": "back" })).await.unwrap()["url"], home.as_str());
+        assert_eq!(go("page.history", json!({ "action": "forward" })).await.unwrap()["url"], two.as_str());
+        assert!(go("page.history", json!({ "action": "forward" })).await.is_err(), "nothing ahead of the last page");
+        assert_eq!(go("page.history", json!({ "action": "reload" })).await.unwrap()["url"], two.as_str());
+        assert!(go("page.history", json!({ "action": "sideways" })).await.is_err());
     }
 
     #[test]

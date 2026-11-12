@@ -3209,7 +3209,14 @@ pub async fn create_profiles(
     name_pattern: String,
     template: serde_json::Value,
     origin: Option<String>,
+    // The number the first profile gets; absent is 1.
+    start: Option<u32>,
+    // One proxy per profile, in order. A profile past the end of the list
+    // keeps the template's.
+    proxy_ids: Option<Vec<String>>,
 ) -> R<serde_json::Value> {
+    let start = start.unwrap_or(1).max(1);
+    let proxy_ids = proxy_ids.unwrap_or_default();
     if !(1..=500).contains(&count) {
         return Err(ApiErr::local(
             "Between 1 and 500. Five hundred profiles is already more than a person can \
@@ -3233,6 +3240,8 @@ pub async fn create_profiles(
                 "count": count,
                 "name_pattern": name_pattern,
                 "template": template,
+                "start": start,
+                "proxy_ids": proxy_ids,
             }),
         )
         .await?);
@@ -3251,10 +3260,13 @@ pub async fn create_profiles(
 
     let mut created = Vec::new();
     let mut failed = Vec::new();
-    for i in 1..=count {
+    for (k, i) in (start..start + count).enumerate() {
         let mut one = template.clone();
         one["id"] = serde_json::json!("");
         one["name"] = serde_json::json!(pattern.replace("{n}", &i.to_string()));
+        if let Some(id) = proxy_ids.get(k).filter(|id| !id.is_empty()) {
+            one["proxy_id"] = serde_json::json!(id);
+        }
         if pick {
             one["persona_id"] =
                 serde_json::json!(fury_shared::catalogue::pick_weighted_on(
@@ -3662,6 +3674,54 @@ pub async fn copy_extension_with_state(
     Ok(crate::agent::call(
         "extensions.copy_with_state",
         serde_json::json!({ "from_profile_id": from_profile_id, "ext_id": ext_id, "profile_ids": profile_ids }),
+    )
+    .await?)
+}
+
+/// An unpacked extension from a folder on this machine (agent:
+/// extensions.install_folder). The path is typed, not picked: this shell has
+/// no native file dialog, and a folder chosen in the webview is a list of
+/// files without the path the agent needs to read it again on refresh.
+#[tauri::command]
+pub async fn install_extension_folder(profile_ids: Vec<String>, path: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call(
+        "extensions.install_folder",
+        serde_json::json!({ "profile_ids": profile_ids, "path": path }),
+    )
+    .await?)
+}
+
+/// The newer version from wherever each copy came from (agent: extensions.refresh).
+#[tauri::command]
+pub async fn refresh_extension(ext_id: String, profile_ids: Vec<String>) -> R<serde_json::Value> {
+    Ok(crate::agent::call(
+        "extensions.refresh",
+        serde_json::json!({ "ext_id": ext_id, "profile_ids": profile_ids }),
+    )
+    .await?)
+}
+
+/// What a local project gives every profile in it (agent: extsets.rs).
+#[tauri::command]
+pub async fn project_extensions(project_id: String) -> R<serde_json::Value> {
+    Ok(crate::agent::call("extensions.project.get", serde_json::json!({ "project_id": project_id })).await?)
+}
+
+#[tauri::command]
+pub async fn set_project_extensions(project_id: String, entries: Vec<serde_json::Value>) -> R<serde_json::Value> {
+    Ok(crate::agent::call(
+        "extensions.project.set",
+        serde_json::json!({ "project_id": project_id, "entries": entries }),
+    )
+    .await?)
+}
+
+/// How a project's list is enforced, for this machine (agent: extsets.rs).
+#[tauri::command]
+pub async fn set_extension_options(exclusive: bool, wipe_storage: bool) -> R<serde_json::Value> {
+    Ok(crate::agent::call(
+        "extensions.options.set",
+        serde_json::json!({ "exclusive": exclusive, "wipe_storage": wipe_storage }),
     )
     .await?)
 }
