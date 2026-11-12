@@ -109,6 +109,10 @@
     .download p { max-width: 42ch; margin: 0; color: var(--muted); line-height: 1.6; }
     .download .cta { margin-top: 1.25rem; }
     .downloads .cta:focus-visible { outline-color: var(--ink); }
+    .first-launch { margin: 1.5rem 0; padding: 1rem 1.25rem; border: 1px solid var(--line); border-left: 4px solid var(--muted); background: #eff2e7; }
+    .first-launch h3 { margin: 0 0 .6rem; font-size: 1.1rem; letter-spacing: -.02em; }
+    .first-launch p, .first-launch ol { max-width: 78ch; margin: .6rem 0 0; line-height: 1.65; }
+    .first-launch ol { padding-left: 1.35rem; }
     .release-status { max-width: 78ch; margin: 1.4rem 0 0; line-height: 1.65; }
     .release-links { display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; margin-top: .7rem; }
     .release-links a { display: inline-block; padding-block: .4rem; font-weight: 650; text-underline-offset: .2em; }
@@ -203,6 +207,17 @@
     <section class="wrap downloads" id="downloads" aria-labelledby="downloads-title">
       <p class="eyebrow">PiBrowse 0.5.5 · Preview</p>
       <h2 id="downloads-title">Download for Apple Silicon.</h2>
+      <aside class="first-launch" aria-labelledby="first-launch-title">
+        <h3 id="first-launch-title">First launch on macOS · 首次打开需手动授权</h3>
+        <p>This preview has no Apple Developer ID signature or Apple notarization. If macOS says Apple cannot verify PiBrowse and you trust this download, follow these steps to approve the app manually.</p>
+        <ol>
+          <li>Move PiBrowse.app to <strong>Applications</strong>, then try to open it.</li>
+          <li>Open <strong>System Settings → Privacy &amp; Security</strong>, find the PiBrowse notice and click <strong>Open Anyway</strong>.</li>
+          <li>Confirm <strong>Open</strong> when prompted. macOS may ask you to authenticate.</li>
+        </ol>
+        <p lang="zh-CN"><strong>中文：</strong>先将 PiBrowse.app 拖入「应用程序」并尝试打开；如果被拦截，确认下载来源可信后，进入<strong>系统设置 → 隐私与安全性 → 找到 PiBrowse →「仍要打开」</strong>，再按系统提示确认。当前预览版需要你自行完成这一步授权。</p>
+        <p><a href="https://support.apple.com/zh-cn/102445">Apple’s official instructions / Apple 官方步骤</a></p>
+      </aside>
       <div class="download-list">
         <article class="download">
           <p class="eyebrow">1 · Desktop application</p>
@@ -222,7 +237,7 @@
         <li>Open PiBrowse and choose <strong>Download the browser</strong> to install the matching core.</li>
         <li>Create a local profile, or connect to your own team server.</li>
       </ol>
-      <p class="release-status"><strong>Preview status:</strong> the macOS app and core are ad-hoc signed, without an Apple Developer ID or Apple notarization. macOS may block the first launch; follow the instructions in the release notes. Automatic updates are not configured. This release includes no Windows or Intel Mac binary.</p>
+      <p class="release-status"><strong>Preview status:</strong> the macOS app and core are ad-hoc signed, without an Apple Developer ID or Apple notarization. macOS may block the first launch; follow the manual approval steps above. Automatic updates are not configured. This release includes no Windows or Intel Mac binary.</p>
       <div class="release-links">
         <a href="https://github.com/aronhy/pibrowse/releases/tag/v0.5.5">Release notes, installation help and checksums</a>
         <a href="https://github.com/aronhy/pibrowse">Browse the source</a>
