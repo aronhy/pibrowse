@@ -179,6 +179,12 @@ fn reqwest_failure(e: &reqwest::Error) -> (&'static str, String) {
     }
 }
 
+/// The port in `ws://127.0.0.1:51835/devtools/browser/…`, which is the
+/// `debug_port` a launch reports beside the endpoint.
+fn debug_port_of(ws: &str) -> Option<u16> {
+    ws.split("://").nth(1)?.split('/').next()?.rsplit(':').next()?.parse().ok()
+}
+
 /// A profile that is open right now.
 struct Running {
     child: std::process::Child,
@@ -201,7 +207,7 @@ struct Running {
     /// Renews the lock while the browser runs. Aborted on stop — a lock kept
     /// alive after the browser closed is a profile nobody else can open.
     heartbeat: Option<tokio::task::JoinHandle<()>>,
-    #[allow(dead_code)] // reported by `status`; kept for the automation API
+    /// Reported by `profile.connection`.
     relay_port: u16,
     /// Present when this launch was allowed CDP. Kept so a cookie read on an
     /// already-open profile reuses the browser that is there rather than
@@ -810,6 +816,9 @@ impl Agent {
             // and the account with it.
             "profiles.usage" => {
                 let id = str_param(&params, "id")?;
+                // Reachable over HTTP since the automation API was widened,
+                // and the id is a path component: see check_profile_id.
+                check_profile_id(&id)?;
                 let u = crate::usage::measure(&paths::profile_dir(&id))?;
                 Ok(serde_json::to_value(u)?)
             }
@@ -825,6 +834,9 @@ impl Agent {
             // and the operator would have no way to tell it happened.
             "profiles.trim" => {
                 let id = str_param(&params, "id")?;
+                // This one deletes: with "../.." for an id it would remove
+                // every directory with a cache's name under whatever that is.
+                check_profile_id(&id)?;
                 if self.running.lock().await.contains_key(&id) {
                     anyhow::bail!("close the profile first — Chromium holds its cache open");
                 }
@@ -2045,6 +2057,69 @@ impl Agent {
                 Ok(json!({ "id": id, "fp_seed": seed }))
             }
 
+            // A different MACHINE for the same profile, and a new seed with
+            // it: what the dialog's Random button does and then saves, as one
+            // call, so a script between two runs gets the same draw a person
+            // gets (catalogue::pick_another has the rules).
+            //
+            // The hardware pinned by hand goes, because it was pinned for the
+            // old machine: 4 cores kept beside another machine's GPU is the
+            // invented combination `overrides.apply` exists to refuse. What
+            // describes the exit and the person -- locale, position, network,
+            // fonts, canvas mode -- stays, and so do the proxy, the timezone
+            // and the browser data. Cookies are not a fingerprint; a profile
+            // that should forget its session as well is trimmed or remade.
+            //
+            // Refused while open, for `reseed`'s reason.
+            "profiles.randomize" => {
+                let id = str_param(&params, "id")?;
+                if self.running.lock().await.contains_key(&id) {
+                    anyhow::bail!("close the profile first — a fingerprint must not change mid-session");
+                }
+                let mut profile = self
+                    .store
+                    .profile(&id)
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("no such profile"))?;
+                let pool = crate::personas::all();
+                let persona = fury_shared::catalogue::pick_another(
+                    pool.clone(),
+                    &profile.persona_id,
+                    fury_shared::catalogue::host_os(),
+                    rand::random(),
+                )
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "no other machine of this profile's operating system in the catalogue, \
+                         and another OS is not offered: the patches do not hide it"
+                    )
+                })?;
+                profile.persona_id = persona.id.clone();
+                profile.overrides.cores = None;
+                profile.overrides.memory_gb = None;
+                profile.overrides.gpu = None;
+                profile.overrides.screen = None;
+                // The same two checks `profiles.upsert` makes, before anything
+                // is written: a draw that cannot launch must leave the profile
+                // on the machine it had.
+                if let Err(errs) = persona.validate() {
+                    anyhow::bail!(
+                        "persona {} is inconsistent:\n  {}",
+                        persona.id,
+                        errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n  ")
+                    );
+                }
+                if let Err(errs) = profile.overrides.apply(&persona, &pool) {
+                    anyhow::bail!(
+                        "these machine settings describe a machine that does not exist:\n  {}",
+                        errs.join("\n  ")
+                    );
+                }
+                self.store.upsert_profile(&profile).await?;
+                let seed = self.store.reseed_profile(&id).await?;
+                Ok(json!({ "id": id, "persona_id": persona.id, "fp_seed": seed }))
+            }
+
             "profiles.clone" => {
                 let id = str_param(&params, "id")?;
                 let source = self
@@ -2654,11 +2729,48 @@ impl Agent {
             }
             "profile.stop" => self.stop(&str_param(&params, "id")?).await,
 
+            // Where an open profile's browser is, for a script that did not
+            // start it or has lost what `profile.launch` answered -- a second
+            // launch is refused ("already open"), so until this there was no
+            // way back to a browser but closing it.
+            //
+            // It gives out nothing the launch did not: the endpoint exists
+            // only if that launch was allowed the debugging port, and a
+            // profile opened from the window has none to give. `running:
+            // false` is an answer, not an error, because "is it open" is half
+            // of what this is asked for.
+            "profile.connection" => {
+                let id = str_param(&params, "id")?;
+                let mut running = self.running.lock().await;
+                // try_wait, as in profiles.list: an entry whose browser has
+                // gone is the reaper's to tear down and is not open.
+                let Some(entry) = running.get_mut(&id) else {
+                    return Ok(json!({ "running": false }));
+                };
+                if !matches!(entry.child.try_wait(), Ok(None)) {
+                    return Ok(json!({ "running": false }));
+                }
+                let mut out = json!({
+                    "running": true,
+                    "pid": entry.child.id(),
+                    "relay_port": entry.relay_port,
+                });
+                if let Some(ws) = entry.ws_endpoint.clone() {
+                    if let Some(port) = debug_port_of(&ws) {
+                        out["debug_port"] = json!(port);
+                    }
+                    out["ws_endpoint"] = json!(ws);
+                    out["ws"] = json!({ "puppeteer": ws, "selenium": ws });
+                }
+                Ok(out)
+            }
+
             // The page of an open profile, for an assistant over MCP. See
             // browse.rs. Only a profile this agent opened with the debugging
             // port has one to drive; anything else is refused with a reason
             // the assistant can act on.
-            "page.navigate" | "page.read" | "page.click" | "page.type" | "page.screenshot" => {
+            "page.navigate" | "page.read" | "page.click" | "page.type" | "page.screenshot"
+            | "page.key" | "page.scroll" | "page.wait" | "page.history" => {
                 let id = str_param(&params, "id")?;
                 let ws = {
                     let mut running = self.running.lock().await;
@@ -2837,6 +2949,15 @@ impl Agent {
         cdp: bool,
         background: bool,
     ) -> anyhow::Result<serde_json::Value> {
+        // Both ids, before either is anywhere near a path. The inline profile
+        // is the shell's, for a team launch, but `POST /v1/profiles/start`
+        // hands its whole body to this call, and its `id` is what the
+        // user-data-dir is named by: `{"profile": {"id": "../../.."}}` put
+        // one outside the data directory for anybody holding the token.
+        check_profile_id(profile_id)?;
+        if let Some(inline) = inline.as_ref() {
+            check_profile_id(&inline.id)?;
+        }
         let profile_key = team.as_ref().map(|t| t.profile_key);
         let key_generation = team.as_ref().and_then(|t| t.key_generation);
         // The lock is renewed from here, before the exit check and the bundle
@@ -3733,6 +3854,17 @@ fn load_local_lists() -> crate::blocklist::Blocklist {
     all
 }
 
+/// A profile id on its way into a path: one component, of the characters a
+/// UUID is written in. `paths::profile_dir` is a plain join, so an absolute
+/// path replaces the data directory and `..` climbs out of it; ids are UUIDs,
+/// a team's too, and nothing else has a reason to be accepted.
+fn check_profile_id(id: &str) -> anyhow::Result<()> {
+    if id.is_empty() || !id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-') {
+        anyhow::bail!("{id:?} is not a profile id");
+    }
+    Ok(())
+}
+
 fn str_param(params: &serde_json::Value, name: &str) -> anyhow::Result<String> {
     params
         .get(name)
@@ -4024,6 +4156,226 @@ mod exit_check_tests {
         };
         assert_eq!(preview(true).await, Some(8), "the dialog says what saving will store");
         assert_eq!(preview(false).await, Some(16));
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// A `sleep` stands in for the browser, as above.
+    fn stand_in(seconds: &str, ws: Option<&str>) -> super::Running {
+        super::Running {
+            child: std::process::Command::new("sleep").arg(seconds).spawn().unwrap(),
+            server: None,
+            profile_key: None,
+            key_generation: None,
+            lock_token: None,
+            heartbeat: None,
+            relay_port: 51834,
+            ws_endpoint: ws.map(str::to_string),
+            background: false,
+            relay: tokio::spawn(async {}),
+        }
+    }
+
+    /// A script that lost the launch result gets the same endpoint back, a
+    /// profile opened without the port has none to give, and a browser that
+    /// has gone is not open even while its entry waits for the reaper.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn an_open_profile_says_where_its_browser_is() {
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!("fury-connection-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&home).ok();
+        // SAFETY: the mutex above is what makes this single-threaded.
+        unsafe { std::env::set_var("FURY_HOME", &home) };
+        let agent = super::Agent::new().await.expect("an agent in a scratch home");
+        let ask = |id: &'static str| {
+            let agent = &agent;
+            async move { agent.dispatch("profile.connection", serde_json::json!({ "id": id })).await.unwrap() }
+        };
+
+        assert_eq!(ask("nobody").await, serde_json::json!({ "running": false }));
+
+        let ws = "ws://127.0.0.1:51835/devtools/browser/9c1f";
+        agent.running.lock().await.insert("driven".into(), stand_in("30", Some(ws)));
+        agent.running.lock().await.insert("by-hand".into(), stand_in("30", None));
+        agent.running.lock().await.insert("gone".into(), stand_in("0", Some(ws)));
+
+        let driven = ask("driven").await;
+        assert_eq!(driven["running"], true, "{driven}");
+        assert_eq!(driven["ws_endpoint"], ws);
+        assert_eq!(driven["ws"]["puppeteer"], ws);
+        assert_eq!(driven["debug_port"], 51835);
+        assert_eq!(driven["relay_port"], 51834);
+        assert!(driven["pid"].as_u64().is_some_and(|pid| pid > 0), "{driven}");
+
+        let by_hand = ask("by-hand").await;
+        assert_eq!(by_hand["running"], true);
+        assert!(by_hand.get("ws_endpoint").is_none(), "an endpoint the launch never had: {by_hand}");
+        assert!(by_hand.get("debug_port").is_none());
+
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        assert_eq!(ask("gone").await, serde_json::json!({ "running": false }));
+        assert!(agent.running.lock().await.contains_key("gone"), "the entry is the reaper's to remove");
+
+        for id in ["driven", "by-hand"] {
+            if let Some(mut entry) = agent.running.lock().await.remove(id) {
+                entry.child.kill().ok();
+                entry.child.wait().ok();
+            }
+        }
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    #[test]
+    fn the_debug_port_is_read_out_of_the_endpoint() {
+        assert_eq!(super::debug_port_of("ws://127.0.0.1:51835/devtools/browser/9c1f"), Some(51835));
+        assert_eq!(super::debug_port_of("ws://127.0.0.1/devtools/browser/9c1f"), None);
+        assert_eq!(super::debug_port_of("not an endpoint"), None);
+    }
+
+    #[test]
+    fn a_profile_id_is_one_path_component_and_nothing_else() {
+        for bad in ["/abs", "../x", "a/b", "", "..", ".", "a\\b", "C:x", "a b", "é"] {
+            assert!(super::check_profile_id(bad).is_err(), "{bad:?}");
+        }
+        assert!(super::check_profile_id("3f2b8c1e-9d4a-4e7b-8a6f-0c1d2e3f4a5b").is_ok());
+    }
+
+    /// The two calls that take an id into a path refuse one that is not an
+    /// id, before anything is measured or removed: a directory with a cache's
+    /// name, outside the profiles, is still there afterwards.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn usage_and_trim_do_not_leave_the_data_directory() {
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!("fury-profile-id-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&home).ok();
+        // SAFETY: the mutex above is what makes this single-threaded.
+        unsafe { std::env::set_var("FURY_HOME", &home) };
+        let agent = super::Agent::new().await.expect("an agent in a scratch home");
+        let outside = home.join("outside");
+        let cache = outside.join("download_cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("data_0"), "not ours to remove").unwrap();
+
+        let abs = outside.to_string_lossy().to_string();
+        for method in ["profiles.usage", "profiles.trim"] {
+            for id in [abs.as_str(), "../x", "../../outside", "../outside", "a/b", ""] {
+                let err = Box::pin(agent.dispatch(method, serde_json::json!({ "id": id }))).await.unwrap_err().to_string();
+                assert!(err.contains("is not a profile id"), "{method} {id:?}: {err}");
+            }
+        }
+        assert!(cache.join("data_0").is_file(), "trim reached a directory outside the profiles");
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// `profile.launch` takes an inline profile for the shell's team
+    /// launches, and the HTTP API hands it a script's whole request: an id
+    /// that is not one is refused before a directory is named by it.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn a_launch_does_not_take_a_path_for_an_id() {
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!("fury-launch-id-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&home).ok();
+        // SAFETY: the mutex above is what makes this single-threaded.
+        unsafe { std::env::set_var("FURY_HOME", &home) };
+        let agent = super::Agent::new().await.expect("an agent in a scratch home");
+        let persona = crate::personas::all().into_iter().next().unwrap().id;
+        let inline = |id: &str| {
+            serde_json::json!({
+                "id": id, "project_id": null, "name": "inline", "notes": "", "tags": [], "status": "",
+                "persona_id": persona, "fp_seed": 7, "proxy": null, "proxy_id": null, "timezone": null,
+                "languages": null, "overrides": {}, "start_urls": [], "allow_no_proxy": true, "last_opened_at": null,
+            })
+        };
+        let before: Vec<_> = std::fs::read_dir(&home).unwrap().flatten().map(|e| e.file_name()).collect();
+        for params in [
+            serde_json::json!({ "id": "x", "profile": inline("../../..") }),
+            serde_json::json!({ "id": "x", "profile": inline("../outside") }),
+            serde_json::json!({ "id": "x", "profile": inline(&home.join("outside").to_string_lossy()) }),
+            serde_json::json!({ "id": "../outside" }),
+        ] {
+            let err = Box::pin(agent.dispatch("profile.launch", params.clone())).await.unwrap_err().to_string();
+            assert!(err.contains("is not a profile id"), "{params}: {err}");
+        }
+        let after: Vec<_> = std::fs::read_dir(&home).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(before, after, "something was made on disk for a launch that was refused");
+        assert!(!home.join("outside").exists() && !crate::paths::profile_dir("x").exists());
+        std::fs::remove_dir_all(&home).ok();
+    }
+
+    /// Another machine of the same OS and another seed, twenty times over; the
+    /// hardware pinned for the old machine goes and what describes the person
+    /// stays; and none of it while the browser is open.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn randomize_changes_the_machine_and_the_seed_and_keeps_the_rest() {
+        let _guard = crate::ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let home = std::env::temp_dir().join(format!("fury-randomize-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&home).ok();
+        // SAFETY: the mutex above is what makes this single-threaded.
+        unsafe { std::env::set_var("FURY_HOME", &home) };
+        let agent = super::Agent::new().await.expect("an agent in a scratch home");
+        let first = crate::personas::all()
+            .into_iter()
+            .find(|p| p.os.name == "macOS" && p.memory_gb == 16)
+            .expect("a Mac on 16 GB");
+        let id = agent
+            .dispatch(
+                "profiles.upsert",
+                serde_json::json!({
+                    "id": "", "project_id": null, "name": "re-rolled", "notes": "kept", "tags": ["t"], "status": "",
+                    "persona_id": first.id, "fp_seed": 0, "proxy": null, "proxy_id": null,
+                    "timezone": "Europe/Berlin", "languages": ["de-DE"],
+                    "overrides": { "memory_gb": 16, "ui_locale": "de" },
+                    "start_urls": ["https://example.com/"], "allow_no_proxy": true, "last_opened_at": null,
+                }),
+            )
+            .await
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let read = || {
+            let (agent, id) = (&agent, id.clone());
+            async move {
+                let all = agent.dispatch("profiles.list", serde_json::json!({})).await.unwrap();
+                all.as_array().unwrap().iter().find(|p| p["id"] == id.as_str()).cloned().unwrap()
+            }
+        };
+
+        let mut before = read().await;
+        assert_eq!(before["overrides"]["memory_gb"], 16);
+        for _ in 0..20 {
+            let out = agent.dispatch("profiles.randomize", serde_json::json!({ "id": id })).await.unwrap();
+            let after = read().await;
+            assert_eq!(after["persona_id"], out["persona_id"]);
+            assert_eq!(after["fp_seed"], out["fp_seed"]);
+            assert_ne!(after["persona_id"], before["persona_id"], "the same machine is not a re-roll");
+            assert_ne!(after["fp_seed"], before["fp_seed"]);
+            let os = crate::personas::load(after["persona_id"].as_str().unwrap()).unwrap().os.name;
+            assert_eq!(os, "macOS");
+            assert!(after["overrides"].get("memory_gb").is_none(), "{after}");
+            assert_eq!(after["overrides"]["ui_locale"], "de");
+            for kept in ["name", "notes", "tags", "timezone", "languages", "start_urls", "allow_no_proxy"] {
+                assert_eq!(after[kept], before[kept], "{kept}");
+            }
+            before = after;
+        }
+
+        agent.running.lock().await.insert(id.clone(), stand_in("30", None));
+        let refused = agent.dispatch("profiles.randomize", serde_json::json!({ "id": id })).await;
+        assert!(refused.unwrap_err().to_string().contains("close the profile first"));
+        let untouched = read().await;
+        assert_eq!(untouched["persona_id"], before["persona_id"]);
+        assert_eq!(untouched["fp_seed"], before["fp_seed"]);
+        if let Some(mut entry) = agent.running.lock().await.remove(&id) {
+            entry.child.kill().ok();
+            entry.child.wait().ok();
+        }
+
+        let nobody = agent.dispatch("profiles.randomize", serde_json::json!({ "id": "nobody" })).await;
+        assert!(nobody.unwrap_err().to_string().contains("no such profile"));
         std::fs::remove_dir_all(&home).ok();
     }
 
