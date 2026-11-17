@@ -21,6 +21,7 @@ mod dock;
 mod core_download;
 mod logging;
 mod ext;
+mod extsets;
 mod geoip;
 mod http;
 mod import_browser;

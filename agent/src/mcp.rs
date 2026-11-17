@@ -19,7 +19,8 @@
 //! there is no "call any method" tool. It can read the profile list, create
 //! profiles and save proxies, rename, tag and re-proxy a profile, move one to
 //! the Trash, open and close profiles, warm them, and drive the page of one it
-//! opened. Creating was added on a tester's request (08.10.2026): "AdsPower's
+//! opened: go to an address, read, click, type, press a key, turn the wheel,
+//! wait for something to appear, go back. Creating was added on a tester's request (08.10.2026): "AdsPower's
 //! AI does everything". It cannot erase a profile, change a fingerprint,
 //! export cookies or read passwords; proxy passwords and notes are cut out of
 //! everything it returns, because what it returns goes to a model provider.
@@ -199,6 +200,46 @@ const TOOLS: &[Tool] = &[
         name: "fury_screenshot",
         description: "A picture of what an open profile's tab shows now.",
         schema: || json!({ "type": "object", "properties": { "profile": profile_arg() }, "required": ["profile"] }),
+    },
+    Tool {
+        name: "fury_press_key",
+        description: "Press one key in an open profile's tab, on whatever has focus: Enter, Tab, Escape, Backspace, \
+                      Delete, Space, the arrows, PageUp, PageDown, Home, End. Letters and words go through fury_type.",
+        schema: || json!({ "type": "object", "properties": {
+            "profile": profile_arg(),
+            "key": { "type": "string", "description": "The key's name, e.g. Escape or ArrowDown" },
+        }, "required": ["profile", "key"] }),
+    },
+    Tool {
+        name: "fury_scroll",
+        description: "Turn the mouse wheel over an open profile's page, to read further down or to make a page \
+                      that loads as it is scrolled load more. Says where the page is afterwards and whether \
+                      that is the bottom. Read the page again before using element numbers.",
+        schema: || json!({ "type": "object", "properties": {
+            "profile": profile_arg(),
+            "direction": { "type": "string", "enum": ["down", "up"], "description": "Default down" },
+            "screens": { "type": "number", "description": "How far, in screens: default 1, at most 10" },
+        }, "required": ["profile"] }),
+    },
+    Tool {
+        name: "fury_wait_for",
+        description: "Wait until an open profile's page shows some text, or its address contains something, \
+                      after an action whose result takes time to appear. found: false means it did not within \
+                      the time; that is an answer, not a failure.",
+        schema: || json!({ "type": "object", "properties": {
+            "profile": profile_arg(),
+            "text": { "type": "string", "description": "Text that should appear on the page, in any case" },
+            "url": { "type": "string", "description": "Part of the address the tab should reach" },
+            "seconds": { "type": "integer", "description": "How long to wait: default 10, at most 60" },
+        }, "required": ["profile"] }),
+    },
+    Tool {
+        name: "fury_history",
+        description: "Go back or forward in an open profile's tab, or reload it, and wait for the page.",
+        schema: || json!({ "type": "object", "properties": {
+            "profile": profile_arg(),
+            "action": { "type": "string", "enum": ["back", "forward", "reload"] },
+        }, "required": ["profile", "action"] }),
     },
     Tool {
         name: "fury_warm_up",
@@ -501,6 +542,40 @@ async fn call_tool(backend: &Backend, name: &str, args: &Value) -> anyhow::Resul
                 content.push(json!({ "type": "image", "data": data, "mimeType": mime }));
             }
             Ok(content)
+        }
+        "fury_press_key" => {
+            let (id, _) = resolve(backend, args).await?;
+            let key = s(args, "key").ok_or_else(|| anyhow::anyhow!("key is required"))?;
+            Ok(text(&backend("page.key", json!({ "id": id, "key": key })).await?))
+        }
+        "fury_scroll" => {
+            let (id, _) = resolve(backend, args).await?;
+            let mut p = json!({ "id": id });
+            if let Some(d) = s(args, "direction") {
+                p["direction"] = json!(d);
+            }
+            if let Some(n) = args.get("screens").and_then(Value::as_f64) {
+                p["screens"] = json!(n);
+            }
+            Ok(text(&backend("page.scroll", p).await?))
+        }
+        "fury_wait_for" => {
+            let (id, _) = resolve(backend, args).await?;
+            let mut p = json!({ "id": id });
+            for k in ["text", "url"] {
+                if let Some(v) = s(args, k) {
+                    p[k] = json!(v);
+                }
+            }
+            if let Some(n) = args.get("seconds").and_then(Value::as_u64) {
+                p["seconds"] = json!(n);
+            }
+            Ok(text(&backend("page.wait", p).await?))
+        }
+        "fury_history" => {
+            let (id, _) = resolve(backend, args).await?;
+            let action = s(args, "action").ok_or_else(|| anyhow::anyhow!("action is required"))?;
+            Ok(text(&backend("page.history", json!({ "id": id, "action": action })).await?))
         }
         "fury_warm_up" => {
             let names: Vec<String> = args
@@ -929,6 +1004,142 @@ mod tests {
         assert_eq!(content[1]["type"], "image");
         assert_eq!(content[1]["mimeType"], "image/jpeg");
         assert!(!content[0]["text"].as_str().unwrap().contains("QUJD"), "the picture is not repeated as text");
+    }
+
+    /// Each of the four reaches the page method it names with the profile's
+    /// id, not its name, and with nothing the caller did not say: a default
+    /// belongs to browse.rs, in one place.
+    #[tokio::test]
+    async fn the_page_tools_reach_their_methods_with_what_was_asked() {
+        let b = fake();
+        let sent = |r: Value| -> Value { serde_json::from_str(r["content"][0]["text"].as_str().unwrap()).unwrap() };
+
+        let r = sent(call(&*b, "fury_press_key", json!({ "profile": "Shop FR", "key": "Escape" })).await);
+        assert_eq!(r, json!({ "method": "page.key", "params": { "id": "p2", "key": "Escape" } }));
+
+        let r = sent(call(&*b, "fury_scroll", json!({ "profile": "p2" })).await);
+        assert_eq!(r, json!({ "method": "page.scroll", "params": { "id": "p2" } }));
+        let r = sent(call(&*b, "fury_scroll", json!({ "profile": "p2", "direction": "up", "screens": 2.5 })).await);
+        assert_eq!(r["params"], json!({ "id": "p2", "direction": "up", "screens": 2.5 }));
+
+        let r = sent(call(&*b, "fury_wait_for", json!({ "profile": "p2", "text": "Inbox", "seconds": 20 })).await);
+        assert_eq!(r, json!({ "method": "page.wait", "params": { "id": "p2", "text": "Inbox", "seconds": 20 } }));
+
+        let r = sent(call(&*b, "fury_history", json!({ "profile": "p2", "action": "back" })).await);
+        assert_eq!(r, json!({ "method": "page.history", "params": { "id": "p2", "action": "back" } }));
+
+        for (tool, args) in [("fury_press_key", json!({ "profile": "p2" })), ("fury_history", json!({ "profile": "p2" }))] {
+            assert_eq!(call(&*b, tool, args).await["isError"], true, "{tool} with nothing to do");
+        }
+    }
+
+    /// What mcp.rs's header promises, held to by what the tools do rather
+    /// than by what they are called: every tool is run, with arguments that
+    /// get it past its own checks, against an agent that writes down what it
+    /// was asked. None of it is `profiles.reseed` or `profiles.randomize`, and
+    /// a profile that is saved again is saved with the machine and the seed
+    /// it had.
+    ///
+    /// The first version of this test read the tools' names for three words,
+    /// which a tool called anything else would have passed.
+    #[tokio::test]
+    async fn no_tool_changes_a_fingerprint() {
+        let stored = json!([
+            { "id": "p1", "name": "Shop DE", "tags": ["warm"], "status": "warming", "running": false,
+              "persona_id": "mac-m2-air", "fp_seed": 8_675_309_u64, "proxy": null, "proxy_id": null,
+              "start_urls": [], "overrides": { "memory_gb": 16 } },
+            { "id": "p2", "name": "Shop FR", "tags": [], "status": "", "running": true,
+              "persona_id": "win-rtx-3060", "fp_seed": 42, "proxy": null, "proxy_id": null,
+              "start_urls": [], "overrides": {} },
+        ]);
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::<(&'static str, Value)>::new()));
+        let (log, profiles) = (asked.clone(), stored.clone());
+        let b: Box<Backend> = Box::new(move |method, params| {
+            let (log, profiles) = (log.clone(), profiles.clone());
+            Box::pin(async move {
+                log.lock().unwrap().push((method, params.clone()));
+                Ok(match method {
+                    "profiles.list" => profiles,
+                    "proxies.list" => json!([{ "id": "x", "name": "de1", "kind": "socks5", "host": "de.exit", "port": 1080 }]),
+                    "proxies.importMany" => json!({ "saved": [{ "id": "y" }], "rejected": [] }),
+                    "personas.list" => json!([{ "id": "mac-m2-air", "os": "macOS", "weight": 0.1 },
+                                              { "id": "win-rtx-3060", "os": "Windows", "weight": 0.2 }]),
+                    "profiles.upsert" => json!({ "id": "new" }),
+                    "profile.launch" => json!({ "pid": 1, "ws_endpoint": "ws://127.0.0.1:1/x" }),
+                    "page.screenshot" => json!({ "url": "https://a", "image": { "mime": "image/jpeg", "data": "QUJD" } }),
+                    "warm.defaults" => json!({ "urls": ["https://example.com/"] }),
+                    _ => json!({ "method": method, "params": params }),
+                })
+            })
+        });
+
+        // One call or more per tool, with everything it accepts. A tool added
+        // to TOOLS without a line here fails the test instead of passing it
+        // unrun.
+        let arguments = |tool: &str| -> Vec<Value> {
+            match tool {
+                "fury_status" | "fury_list_proxies" | "fury_warm_status" | "fury_farm_status" => vec![json!({})],
+                "fury_list_profiles" => vec![json!({ "query": "shop", "tag": "warm", "project": "EU", "open_only": false })],
+                "fury_list_personas" => vec![json!({ "os": "macos" })],
+                "fury_create_profiles" => vec![
+                    json!({ "name": "New {n}", "count": 2, "tags": ["a"], "proxy": "de1", "os": "windows",
+                            "start_urls": ["https://example.com/"], "stage": "warming" }),
+                    json!({ "name": "One", "proxy_line": "socks5://u:p@h:1", "persona": "mac-m2-air" }),
+                ],
+                "fury_update_profile" => vec![
+                    json!({ "profile": "p1", "name": "Renamed", "tags": ["b"], "stage": "ready", "proxy": "de1",
+                            "start_urls": ["https://example.org/"] }),
+                    json!({ "profile": "Shop DE", "proxy": "" }),
+                    // Not something the schema offers, and a model can send
+                    // it all the same.
+                    json!({ "profile": "p1", "persona_id": "win-rtx-3060", "fp_seed": 1, "persona": "win-rtx-3060",
+                            "overrides": { "memory_gb": 8 } }),
+                ],
+                "fury_add_proxies" => vec![json!({ "lines": "h:1:u:p", "name_prefix": "n" })],
+                "fury_start_profile" => vec![json!({ "profile": "p1", "background": true })],
+                "fury_move_to_trash" | "fury_stop_profile" | "fury_screenshot" => vec![json!({ "profile": "p1" })],
+                "fury_open_url" => vec![json!({ "profile": "p2", "url": "example.com" })],
+                "fury_read_page" => vec![json!({ "profile": "p2", "max_chars": 100 })],
+                "fury_click" => vec![json!({ "profile": "p2", "element": 3 })],
+                "fury_type" => vec![json!({ "profile": "p2", "text": "hello", "element": 3, "submit": true })],
+                "fury_press_key" => vec![json!({ "profile": "p2", "key": "Enter" })],
+                "fury_scroll" => vec![json!({ "profile": "p2", "direction": "up", "screens": 2 })],
+                "fury_wait_for" => vec![json!({ "profile": "p2", "text": "Inbox", "url": "/inbox", "seconds": 5 })],
+                "fury_history" => vec![json!({ "profile": "p2", "action": "reload" })],
+                "fury_warm_up" => vec![json!({ "profiles": ["p1", "Shop FR"], "close_after": false }),
+                                       json!({ "profiles": ["p1"], "urls": ["https://example.com/"] })],
+                "fury_farm_plan" => vec![json!({ "profiles": ["p1"], "days": 3, "sites_min": 2, "sites_max": 4,
+                                                 "hour_from": 9, "hour_to": 18, "name": "plan" })],
+                other => panic!("{other} is a tool with no arguments in this test: add some, so that it is run"),
+            }
+        };
+        for t in TOOLS {
+            for args in arguments(t.name) {
+                let r = call(&*b, t.name, args.clone()).await;
+                assert_eq!(r["isError"], false, "{} with {args} did not get as far as the agent: {r}", t.name);
+            }
+        }
+
+        let asked = asked.lock().unwrap();
+        let methods: std::collections::BTreeSet<&str> = asked.iter().map(|(m, _)| *m).collect();
+        for banned in ["profiles.reseed", "profiles.randomize"] {
+            assert!(!methods.contains(banned), "a tool asked the agent for {banned}");
+        }
+        // Every tool that has the agent do something was seen doing it, so
+        // the list above is not passing by having run nothing.
+        for expected in ["profiles.upsert", "profiles.delete", "profile.launch", "profile.stop", "page.navigate",
+                         "page.type", "page.key", "warm.start", "farm.create", "proxies.importMany"] {
+            assert!(methods.contains(expected), "{expected} was never asked for: {methods:?}");
+        }
+        let saved_again: Vec<&Value> =
+            asked.iter().filter(|(m, p)| *m == "profiles.upsert" && p["id"] != "").map(|(_, p)| p).collect();
+        assert_eq!(saved_again.len(), 3, "each fury_update_profile call saves the profile once");
+        for p in saved_again {
+            let was = stored.as_array().unwrap().iter().find(|s| s["id"] == p["id"]).expect("a profile that exists");
+            assert_eq!(p["persona_id"], was["persona_id"], "{p}");
+            assert_eq!(p["fp_seed"], was["fp_seed"], "{p}");
+            assert_eq!(p["overrides"], was["overrides"], "the pinned hardware is part of the machine: {p}");
+        }
     }
 
     #[tokio::test]

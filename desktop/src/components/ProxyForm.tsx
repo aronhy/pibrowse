@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type LocalProxy } from "../api";
 import { Icon } from "./Icon";
 import { NetworkReport } from "./NetworkReport";
 import { useI18n } from "../i18n";
-import { spreadPastedProxy } from "../proxyLine";
+import { proxyLineReader, spreadPastedProxy } from "../proxyLine";
 import { proxyUrl, wgEndpoint } from "../proxyUrl";
 import { WireGuardConf } from "./WireGuardConf";
 
@@ -83,6 +83,59 @@ export function ProxyForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  /** The whole proxy on one line, above the fields it fills.
+   *
+   *  The same parser as a paste into the address box and as the list import,
+   *  so a line reads one way everywhere. Unlike that paste, this box is for
+   *  nothing else, so it is read as it is typed: every field the line can
+   *  carry is set from it, and one it does not carry is emptied, so the form
+   *  below is always what this line says.
+   *
+   *  Which is why the box is only in a NEW proxy's form. It was in the edit
+   *  form as well until 17.11.2026, and there "emptied" meant the login and
+   *  password already saved: a few characters typed into it replaced the
+   *  address and blanked both, and Save then stored that. A saved proxy is
+   *  changed in its own fields, where the address box still takes a pasted
+   *  line and leaves alone what the line does not carry.
+   *
+   *  The address is asked for its protocol when the line is whole -- pasted,
+   *  or the box left, or Enter -- and not at a pause in the typing. */
+  const [line, setLine] = useState("");
+  const [lineRead, setLineRead] = useState<{ shape: string } | "bad" | null>(null);
+  const linePasted = useRef(false);
+  const reader = useMemo(() => proxyLineReader((p) => {
+    if (!p) {
+      setLineRead("bad");
+      return;
+    }
+    setLineRead({ shape: p.shape ?? "" });
+    kindTouched.current = false;
+    setSniffed(null);
+    setHost(p.host);
+    setPort(p.port);
+    setUser(p.username ?? "");
+    setPass(p.password ?? "");
+    if (p.kind) setKind(p.kind as (typeof KINDS)[number]);
+  }, (k) => {
+    if (kindTouched.current) return;
+    setKind(k);
+    setSniffed(k);
+  }, true), []);
+  useEffect(() => reader.cancel, [reader]);
+  const readLine = (text: string) => {
+    setLine(text);
+    // An <input> holds one line: the browser drops the line breaks of a paste.
+    const one = text.trim();
+    const whole = linePasted.current;
+    linePasted.current = false;
+    if (!one) {
+      reader.cancel();
+      setLineRead(null);
+      return;
+    }
+    reader.read(one, whole);
+  };
+
   const complete = host.trim() !== "" && Number(port) > 0;
   /** The address as typed. `k` is passed explicitly when a check follows a
    *  change of protocol in the same click: setKind lands on the next render and
@@ -119,6 +172,30 @@ export function ProxyForm({
         {/* Locked: the fields still show the proxy and the check still runs,
             but nothing reads as editable that Save would only refuse. */}
         <div className={locked ? "form locked" : "form"} style={{ paddingTop: "var(--s-5)" }}>
+          {!editing && !wg && (
+            <div className="field">
+              <label htmlFor="f-line">{t("px.quick")}</label>
+              <div>
+                <input id="f-line" value={line} autoFocus spellCheck={false} autoComplete="off"
+                  className="mono"
+                  placeholder="1.2.3.4:8080:user:pass  ·  socks5://user:pass@host:1080"
+                  onPaste={() => { linePasted.current = true; }}
+                  onChange={(e) => readLine(e.target.value)}
+                  onBlur={reader.flush}
+                  onKeyDown={(e) => {
+                    linePasted.current = false;
+                    if (e.key === "Enter") reader.flush();
+                  }} />
+                <p className={lineRead === "bad" ? "error" : "hint"}>
+                  {lineRead === null
+                    ? t("px.quickHint")
+                    : lineRead === "bad"
+                      ? t("px.quickBad")
+                      : t("px.quickReadAs", { shape: t(`pp.shape.${lineRead.shape}` as never) })}
+                </p>
+              </div>
+            </div>
+          )}
           <div className="field">
             <label>{t("px.type")}</label>
             <div className="segmented">
@@ -138,7 +215,7 @@ export function ProxyForm({
               {wg && <WireGuardConf id="f-conf" value={conf} onChange={setConf} readOnly={locked !== null} />}
               <div className="row" style={wg ? { marginTop: "var(--s-2)" } : undefined}>
                 {!wg && <>
-                <input id="f-host" value={host} autoFocus={!locked} readOnly={locked !== null} placeholder="exit.provider.net"
+                <input id="f-host" value={host} autoFocus={!locked && !!editing} readOnly={locked !== null} placeholder="exit.provider.net"
                   onChange={(e) => setHost(e.target.value)}
                   onPaste={spreadPastedProxy((p) => {
                     kindTouched.current = false;

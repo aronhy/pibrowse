@@ -20,6 +20,9 @@ export function Sidebar({
   onRenameProject,
   onDeleteProject,
   onNewProfile,
+  onQuickCreate,
+  onBatch,
+  quickBusy,
   view,
   onView,
   onSettings,
@@ -40,6 +43,11 @@ export function Sidebar({
   view: View;
   onView: (v: View) => void;
   onNewProfile: () => void;
+  /** One profile, now, with no proxy and no dialog. */
+  onQuickCreate: () => void;
+  /** The batch dialog: how many, how named, and a list of proxies. */
+  onBatch: () => void;
+  quickBusy: boolean;
   onSettings: () => void;
 }) {
   const { t } = useI18n();
@@ -52,6 +60,16 @@ export function Sidebar({
       <button className="primary newProfile" onClick={onNewProfile}>
         {t("bar.newProfile")}
       </button>
+      {/* Beside the full dialog, not instead of it: one click for a profile
+          to fill in later, and the batch for many of them. */}
+      <div className="quickCreate">
+        <button disabled={quickBusy} title={t("qc.oneTitle")} onClick={onQuickCreate}>
+          {t("qc.one")}
+        </button>
+        <button className="quickBatch" title={t("qc.batchTitle")} onClick={onBatch}>
+          {t("qc.batch")}
+        </button>
+      </div>
 
       <nav>
         {/* Sections first, projects under them: the sections are where an

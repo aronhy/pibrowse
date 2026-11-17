@@ -3,7 +3,9 @@
 
 import { useEffect, useState } from "react";
 import { api, type LocalProxy, type Profile, type ProfileTemplate } from "../api";
-import { useI18n } from "../i18n";
+import { dictionary, useI18n } from "../i18n";
+import { numberedProxyLines, proxyLines } from "../quickCreate";
+import { proxiesFor, sharedExits, unusedProxies, type ProxyFor } from "../proxyIds";
 import { SUGGESTED } from "../status";
 import { Select } from "./Select";
 import { SuggestInput } from "./SuggestInput";
@@ -47,11 +49,22 @@ export function BulkProfiles({
   onDone: () => void;
 }) {
   const { t, say } = useI18n();
+  const dict = dictionary();
   const cloning = cloneOf !== null;
+  // A supplier's list, pasted: one proxy per profile, in order.
+  const [pasted, setPasted] = useState("");
+  const [proxied, setProxied] = useState<{
+    assigned: number;
+    rejected: { line: number; error: string; code?: string }[];
+    /** Profiles, by their place in the batch, that leave through one proxy. */
+    shared: number[][];
+    /** Proxies saved for profiles that were not made, and taken out again. */
+    dropped: number;
+  } | null>(null);
 
   const [count, setCount] = useState("10");
   const [pattern, setPattern] = useState(
-    cloning ? `${cloneOf.name} {n}` : "Profile {n}",
+    cloning ? `${cloneOf.name} {n}` : t("qc.name"),
   );
   const [proxyId, setProxyId] = useState("");
   const [tags, setTags] = useState("");
@@ -111,6 +124,11 @@ export function BulkProfiles({
   };
 
   const n = Number(count);
+  const lines = cloning ? [] : proxyLines(pasted);
+  // Lines among those the batch will use that say what a line above them
+  // says: each is a profile put behind another profile's exit.
+  const repeated = sharedExits(lines.slice(0, Number.isInteger(n) && n > 0 ? n : 0).map((l) => l.toLowerCase()))
+    .reduce((sum, group) => sum + group.length - 1, 0);
   const inRange = Number.isInteger(n) && n >= 1 && n <= 500;
   // On a team server the project is what carries access and the proxy is what
   // the browser goes through; the create endpoint requires both.
@@ -118,7 +136,7 @@ export function BulkProfiles({
     ? null
     : !projectId
       ? t("bp.needProject")
-      : !proxyId
+      : !proxyId && proxyLines(pasted).length < n
         ? t("bp.needProxy")
         : null;
   const valid = inRange && missing === null;
@@ -251,6 +269,37 @@ export function BulkProfiles({
                   </div>
 
                   <div className="field">
+                    <label htmlFor="bp-pasted">{t("qc.proxies")}</label>
+                    <div>
+                      <textarea
+                        id="bp-pasted"
+                        rows={5}
+                        value={pasted}
+                        spellCheck={false}
+                        style={{ width: "100%", fontFamily: "var(--mono)", fontSize: 12 }}
+                        placeholder={"1.2.3.4:8080:user:pass\nsocks5://user:pass@gw.provider.net:1080\n5.6.7.8:3128"}
+                        onChange={(e) => setPasted(e.target.value)}
+                      />
+                      <p className="hint">
+                        {t("qc.proxiesHint")}
+                        {inRange && lines.length > 0 && (
+                          <>
+                            {" "}
+                            <strong>
+                              {lines.length < n
+                                ? t("qc.fewer", { p: lines.length, n, r: n - lines.length })
+                                : lines.length > n
+                                  ? t("qc.extra", { p: lines.length, n })
+                                  : t("qc.exact", { n })}
+                            </strong>
+                          </>
+                        )}
+                      </p>
+                      {inRange && repeated > 0 && <p className="error">{t("qc.repeated", { n: repeated })}</p>}
+                    </div>
+                  </div>
+
+                  <div className="field">
                     <label htmlFor="bp-tags">{t("bp.tags")}</label>
                     <div>
                       <input
@@ -361,6 +410,31 @@ export function BulkProfiles({
           {made && (
             <>
               <p>{t("bp.made", { n: made.created.length })}</p>
+              {proxied && proxied.assigned > 0 && <p className="hint">{t("qc.assigned", { n: proxied.assigned })}</p>}
+              {proxied && proxied.rejected.length > 0 && (
+                <div className="settingsGroup">
+                  <h2>{t("qc.rejected", { n: proxied.rejected.length })}</h2>
+                  <ul className="hint" style={{ paddingLeft: "1.2em", lineHeight: 1.7 }}>
+                    {proxied.rejected.map((r) => (
+                      <li key={r.line}>
+                        {t("qc.line", { n: r.line })}:{" "}
+                        {r.code && `pp.why.${r.code}` in dict ? t(`pp.why.${r.code}` as never) : r.error}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {proxied && proxied.shared.length > 0 && (
+                <div className="settingsGroup">
+                  <h2>{t("qc.shared", { n: proxied.shared.reduce((sum, g) => sum + g.length, 0) })}</h2>
+                  <ul className="hint" style={{ paddingLeft: "1.2em", lineHeight: 1.7 }}>
+                    {proxied.shared.map((group) => (
+                      <li key={group[0]}>{group.map((k) => preview(k + 1)).join(", ")}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {proxied && proxied.dropped > 0 && <p className="hint">{t("qc.dropped", { n: proxied.dropped })}</p>}
               {(made.failed?.length ?? 0) > 0 && (
                 <div className="settingsGroup">
                   <h2>{t("bp.failed", { n: made.failed?.length ?? 0 })}</h2>
@@ -404,8 +478,36 @@ export function BulkProfiles({
                     if (cloning) {
                       setMade(await api.cloneProfile(cloneOf.id, n, pattern, cloneOf.origin));
                     } else {
-                      setMade(
-                        await api.createProfiles(n, pattern, {
+                      // The list first, read as the spreadsheet import reads
+                      // its proxy column (proxiesFor): a proxy already here is
+                      // used, not saved twice. Only as many lines as there are
+                      // profiles, so nothing is saved that no profile uses. A
+                      // line that was refused leaves its profile on the proxy
+                      // chosen above, and the lines after it keep their own
+                      // profiles. A proxy named twice is given twice, and the
+                      // answer names the profiles that share it.
+                      let found: ProxyFor[] = [];
+                      const taken = numberedProxyLines(pasted).slice(0, n);
+                      if (lines.length > 0) {
+                        found = await proxiesFor(taken.map((l) => l.text), {
+                          existing: proxies,
+                          namePrefix: "",
+                          origin: where,
+                          unreadable: t("qc.unreadable"),
+                        }, api);
+                      }
+                      // The proxies are saved before the profiles are made. A
+                      // proxy saved just now for a profile that then was not
+                      // made is taken out again, or a failed batch would leave
+                      // the list holding proxies nothing uses.
+                      const takeBack = async (failed: ReadonlySet<number>) => {
+                        const unused = unusedProxies(found, failed);
+                        await Promise.all(unused.map((id) => api.deleteProxy(id, where).catch(() => {})));
+                        return unused.length;
+                      };
+                      let batch: Made;
+                      try {
+                        batch = await api.createProfiles(n, pattern, {
                           id: "",
                           project_id: projectId,
                           name: "",
@@ -426,8 +528,25 @@ export function BulkProfiles({
                           languages: split(languages).length > 0 ? split(languages) : null,
                           start_urls: split(startUrls),
                           last_opened_at: null,
-                        }, where),
-                      );
+                        }, where, { proxyIds: found.map((f) => f.id ?? "") });
+                      } catch (e) {
+                        await takeBack(new Set(found.keys()));
+                        throw e;
+                      }
+                      // The batch numbers from 1, so profile `n` is line n - 1.
+                      const failed = new Set((batch.failed ?? []).map((f) => f.n - 1));
+                      const dropped = await takeBack(failed);
+                      const got = found.map((f, k) => (failed.has(k) ? null : f.id));
+                      if (found.length > 0) {
+                        setProxied({
+                          assigned: got.filter(Boolean).length,
+                          rejected: found.flatMap((f, k) =>
+                            f.error ? [{ line: taken[k].line, error: f.error, code: f.code }] : []),
+                          shared: sharedExits(got),
+                          dropped,
+                        });
+                      }
+                      setMade(batch);
                     }
                   } catch (e) {
                     setError(say(e));

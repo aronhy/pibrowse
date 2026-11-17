@@ -505,22 +505,61 @@ pub fn pick_weighted_on(roll: u64, os: Option<&str>) -> Persona {
     pick_weighted_from(if same.is_empty() { all } else { same }, roll)
 }
 
+/// Another machine for a profile that already has one: the re-roll behind
+/// `profiles.randomize`, with the rules of the dialog's Random button
+/// (desktop/src/fingerprintRandom.ts), so a script and a person get the same
+/// draw.
+///
+/// Never the machine it has, and never another OS: the OS is the one the
+/// current machine runs, or `host` for a profile whose machine is not in
+/// `pool` any more. `None` when nothing else of that OS is there -- a profile
+/// moved to another OS because the catalogue ran out is a profile whose
+/// owner was not asked.
+///
+/// `pool` is the caller's, not `all()`: the agent's has the machines captured
+/// on this computer as well, and those carry weight 0, which is why a pool
+/// with no weight at all is drawn from evenly rather than refused.
+pub fn pick_another(pool: Vec<Persona>, current: &str, host: Option<&str>, roll: u64) -> Option<Persona> {
+    let os: Option<String> = pool
+        .iter()
+        .find(|p| p.id == current)
+        .map(|p| p.os.name.clone())
+        .or_else(|| host.map(str::to_string));
+    let others: Vec<Persona> = pool
+        .into_iter()
+        .filter(|p| p.id != current && os.as_deref().is_none_or(|os| p.os.name == os))
+        .collect();
+    if others.is_empty() {
+        return None;
+    }
+    Some(pick_weighted_from(others, roll))
+}
+
 fn pick_weighted_from(all: Vec<Persona>, roll: u64) -> Persona {
     // Weights are shares of the world's machines, so they sum to well under 1.
     // Normalising against their own total is what makes this a distribution
     // over the catalogue rather than over all computers — otherwise most rolls
     // would fall past the end and land on the last entry.
-    let total: f64 = all.iter().map(|p| p.weight).sum();
-    if total <= 0.0 {
-        return all.into_iter().next().expect("the catalogue is never empty");
-    }
+    //
+    // A weight that is not a positive number counts as none: machines captured
+    // on this computer carry 0, and `pick_another` draws from those too.
+    let weight = |p: &Persona| if p.weight.is_finite() && p.weight > 0.0 { p.weight } else { 0.0 };
+    let total: f64 = all.iter().map(weight).sum();
 
     // 53 bits is the whole mantissa of an f64, so this is a uniform draw in
     // [0,1) with no rounding cliff at either end.
     let unit = (roll >> 11) as f64 / (1u64 << 53) as f64;
+
+    // Nothing weighs anything: every machine is as likely as the next. The
+    // built-in catalogue is never like this; a pool of captured machines is.
+    if total <= 0.0 {
+        let at = ((unit * all.len() as f64) as usize).min(all.len().saturating_sub(1));
+        return all.into_iter().nth(at).expect("the catalogue is never empty");
+    }
+
     let mut cursor = unit * total;
     for persona in &all {
-        cursor -= persona.weight;
+        cursor -= weight(persona);
         if cursor < 0.0 {
             return persona.clone();
         }
@@ -667,6 +706,49 @@ mod tests {
             p.validate()
                 .unwrap_or_else(|e| panic!("persona {}: {e:?}", p.id));
         }
+    }
+
+    /// The re-roll never answers with the machine it was asked to replace and
+    /// never crosses to another OS, over the whole range of the roll; and with
+    /// nothing else of that OS it answers nothing rather than something.
+    #[test]
+    fn another_machine_is_a_different_one_of_the_same_os() {
+        for current in all() {
+            let same_os = all().iter().filter(|p| p.os.name == current.os.name).count();
+            for roll in [0, 1 << 40, u64::MAX / 3, u64::MAX / 2, u64::MAX] {
+                match pick_another(all(), &current.id, Some("no such OS"), roll) {
+                    Some(next) => {
+                        assert_ne!(next.id, current.id);
+                        assert_eq!(next.os.name, current.os.name, "{} -> {}", current.id, next.id);
+                    }
+                    None => assert_eq!(same_os, 1, "{} has company and got none", current.id),
+                }
+            }
+        }
+
+        let only = all().into_iter().next().unwrap();
+        assert!(pick_another(vec![only.clone()], &only.id, None, 7).is_none());
+        assert!(pick_another(Vec::new(), "", None, 7).is_none());
+
+        // A machine that has left the pool: the host's OS decides, and with no
+        // host OS (Linux) anything goes.
+        let on_mac = pick_another(all(), "gone", Some("macOS"), 7).unwrap();
+        assert_eq!(on_mac.os.name, "macOS");
+        assert!(pick_another(all(), "gone", None, 7).is_some());
+    }
+
+    /// Machines captured on this computer carry no weight. Two of them and
+    /// nothing else is still a choice, and both ends of the roll reach one.
+    #[test]
+    fn a_pool_with_no_weight_is_drawn_from_evenly() {
+        let mut pool: Vec<Persona> = all().into_iter().filter(|p| p.os.name == "macOS").take(3).collect();
+        assert_eq!(pool.len(), 3, "the catalogue has at least three Macs");
+        for p in &mut pool {
+            p.weight = 0.0;
+        }
+        let (current, a, b) = (pool[0].id.clone(), pool[1].id.clone(), pool[2].id.clone());
+        assert_eq!(pick_another(pool.clone(), &current, None, 0).unwrap().id, a);
+        assert_eq!(pick_another(pool, &current, None, u64::MAX).unwrap().id, b);
     }
 
     /// The floor under a persona's share of the world.

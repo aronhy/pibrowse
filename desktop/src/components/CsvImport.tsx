@@ -2,7 +2,8 @@
 // Copyright 2026 Bogdan Shapovalov and the Fury authors
 
 import { useMemo, useRef, useState } from "react";
-import { api, type LocalProxy } from "../api";
+import { api } from "../api";
+import { proxiesFor } from "../proxyIds";
 import { useI18n } from "../i18n";
 import { hostOs } from "./ProfileDialog";
 import {
@@ -161,39 +162,20 @@ export function CsvImport({
     setResult(null);
     try {
       const [proxies, personas] = await Promise.all([api.proxies(), api.personas()]);
-      const byName = new Map<string, LocalProxy>(proxies.map((p) => [p.name.trim().toLowerCase(), p]));
-      const byAddr = new Map<string, LocalProxy>(proxies.map((p) => [`${p.host}:${p.port}`, p]));
-
-      // Proxy lines that are neither a known name nor a known address are
-      // created first, once each, through the same parser the paste dialog
-      // uses. The result maps line number back to the id.
       // One proxy per account, in order. Never handed round: two accounts behind
       // one exit is what gets both of them closed, so rows past the end of the
       // list go without one and say so.
       const proxyCell = (r: string[], i: number) => get(r, "proxy") || (accounts ? extraProxies[i] ?? "" : "");
-      const wanted = [...new Set(parsed.data.map(proxyCell).filter(Boolean))];
-      const unknown = wanted.filter((w) => !byName.has(w.toLowerCase()));
-      const lineToId = new Map<string, string>();
-      const lineError = new Map<string, string>();
-      if (unknown.length > 0) {
-        const imported = await api.importProxies(unknown.join("\n"), t("csv.proxyPrefix"), "local");
-        for (const s of imported.saved) {
-          const line = unknown[s.line - 1];
-          // The same address under a different spelling is the proxy already
-          // here: use it, and drop the copy the import just made.
-          const existing = byAddr.get(`${s.host}:${s.port}`);
-          if (existing) await api.deleteProxy(s.id, "local").catch(() => {});
-          lineToId.set(line, existing?.id ?? s.id);
-        }
-        for (const r of imported.rejected) lineError.set(unknown[r.line - 1], r.error);
-      }
-      const proxyIdFor = (cell: string): { id: string | null; error?: string } => {
-        if (!cell) return { id: null };
-        const named = byName.get(cell.toLowerCase());
-        if (named) return { id: named.id };
-        if (lineToId.has(cell)) return { id: lineToId.get(cell)! };
-        return { id: null, error: lineError.get(cell) ?? t("csv.badProxy") };
-      };
+      // A cell is a proxy already here by name, or a line in any shape the
+      // paste dialog reads -- see proxiesFor, which the batch dialog shares.
+      const cells = parsed.data.map(proxyCell);
+      const found = await proxiesFor(cells, {
+        existing: proxies,
+        namePrefix: t("csv.proxyPrefix"),
+        origin: "local",
+        unreadable: t("csv.badProxy"),
+      }, api);
+      const proxyIdFor = (i: number): { id: string | null; error?: string } => found[i];
 
       // Weighted pick over the catalogue for rows that name no persona —
       // the same spread the batch dialog uses, done here because the rows
@@ -224,7 +206,7 @@ export function CsvImport({
         const row = parsed.data[i];
         const rowNo = i + (parsed.hasHeader ? 2 : 1);
         try {
-          const px = proxyIdFor(proxyCell(row, i));
+          const px = proxyIdFor(i);
           if (px.error) throw new Error(px.error);
           const personaCell = get(row, "persona");
           const persona_id = personaCell && known.has(personaCell) ? personaCell : pick();
