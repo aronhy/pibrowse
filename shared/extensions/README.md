@@ -14,7 +14,7 @@ would break the catalogue weekly while proving nothing the key check does not.
 
 ## What belongs here
 
-Things an account operator installs into every profile by hand, that are
+Things an account operator installs into every profile by hand that are
 open-source or from a vendor whose name carries the responsibility: a content
 blocker, a cookie editor, an authenticator, a password manager. Popular and
 harmless is a virtue — a profile whose extensions look like a real person's
