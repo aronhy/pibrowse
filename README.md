@@ -81,7 +81,7 @@ team. No seats, no per-profile pricing, no telemetry.
 > page, marked pre-release. **macOS builds are signed and notarised since
 > 21.09.2026; Windows is not** — see below.
 >
-> **Windows works, as of 16.08.2026.** The Chromium core built (57 528 targets),
+> **Windows works, as of 16.08.2026.** The Chromium core is built (57 528 targets),
 > the agent runs on it, and `tools/verify-windows.ps1` passes 30 claims on a real
 > machine: the config reaches the browser as an inherited HANDLE, argv carries a
 > slot number and nothing else, no process in the tree has a persona string in
