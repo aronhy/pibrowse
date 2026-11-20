@@ -78,7 +78,7 @@ team. No seats, no per-profile pricing, no telemetry.
 > **Status: in development, and now on both macOS and Windows.** The core builds
 > and spoofs; the agent launches profiles; the server and desktop shell work.
 > Builds are on the [Releases](https://github.com/furyteamtop/fury-antidetect-browser/releases)
-> page, marked pre-release. **macOS builds are signed and notarised since
+> page, marked pre-release. **macOS builds have been signed and notarised since
 > 21.09.2026; Windows is not** — see below.
 >
 > **Windows works, as of 16.08.2026.** The Chromium core built (57 528 targets),
